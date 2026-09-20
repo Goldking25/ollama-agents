@@ -39,6 +39,7 @@ dependencies = [
 
 [project.scripts]
 ollama-agents = "ollama_agents.cli:app"
+ollama-agents-worker = "ollama_agents.worker_node:main"
 
 [project.optional-dependencies]
 dev = [
@@ -51,14 +52,14 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/ollama-agents"
-Issues = "https://github.com/yourusername/ollama-agents/issues"
+Homepage = "https://github.com/Goldking25/ollama-agents"
+Issues = "https://github.com/Goldking25/ollama-agents/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-ollama_agents = ["py.typed", "static/*"]
+ollama_agents = ["py.typed", "static/*", "static/**/*"]
 
 [tool.ruff]
 line-length = 88
