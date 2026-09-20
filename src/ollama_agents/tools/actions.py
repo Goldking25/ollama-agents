@@ -206,3 +206,96 @@ def run_terminal(command: str, timeout: int = 30) -> str:
         return f"Error: Command timed out after {timeout} seconds."
     except Exception as e:
         return f"Error running command: {type(e).__name__}: {e}"
+
+
+def delegate_subagent(role: str, task: str, model: str = "deepseek-r1:8b") -> str:
+    """Delegate a specialized sub-task to a dedicated sub-agent powered by a chosen installed Ollama model.
+
+    Use this tool to delegate work to lightweight specialized models installed locally (e.g.
+    'huihui_ai/qwen2.5-abliterate:7b-instruct' for coding, 'deepseek-r1:8b' for reasoning, 'llama3.1:latest' for writing).
+
+    Args:
+        role: The role/specialization of the sub-agent (e.g. 'Coder', 'Researcher', 'Reviewer', 'MathSpecialist').
+        task: Detailed instructions for what the sub-agent should do and return.
+        model: Installed Ollama model identifier to power this sub-agent (default 'deepseek-r1:8b').
+    """
+    try:
+        from ollama_agents.agent import Agent
+        from ollama_agents.memory_manager import memory_manager
+        from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python
+
+        with memory_manager.acquire_execution_slot(timeout=45.0):
+            sub_agent = Agent(
+                name=f"{role}SubAgent",
+                role=role,
+                instructions=f"You are a specialized sub-agent acting as a {role}. Execute the assigned sub-task thoroughly and concisely.",
+                model=model,
+                tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote],
+                max_turns=15
+            )
+            result = sub_agent.run(task)
+            return f"[SubAgent '{role}' ({model}) Output]:\n{result}"
+    except RuntimeError as re:
+        return f"[Memory / Concurrency Safety Guard]: {re}"
+    except Exception as e:
+        return f"Error executing sub-agent delegation: {type(e).__name__}: {e}"
+
+
+def rag_add_knowledge(text: str, source: str = "user_notes") -> str:
+    """Store text content into the RAG vector embedding database for permanent semantic search.
+
+    Args:
+        text: The text snippet, documentation, or code content to embed.
+        source: Name or label describing where this knowledge came from (e.g. 'indbank_report.md').
+    """
+    try:
+        from ollama_agents.rag import VectorRAGStore
+        rag = VectorRAGStore()
+        success = rag.add_document(content=text, source=source)
+        if success:
+            return f"[RAG Memory] Successfully embedded and stored content from '{source}' into vector memory."
+        return "[RAG Memory] Failed to embed content (empty or embedding model error)."
+    except Exception as e:
+        return f"Error saving to RAG memory: {type(e).__name__}: {e}"
+
+
+def rag_search(query: str, top_k: int = 3) -> str:
+    """Perform semantic vector search over stored RAG knowledge base.
+
+    Args:
+        query: The semantic search question or keywords.
+        top_k: Number of most relevant document matches to return (default 3).
+    """
+    try:
+        from ollama_agents.rag import VectorRAGStore
+        rag = VectorRAGStore()
+        matches = rag.query(query_text=query, top_k=top_k)
+        if not matches:
+            return "[RAG Search] No matching knowledge found in vector store."
+
+        results = []
+        for i, m in enumerate(matches, 1):
+            results.append(f"{i}. [{m['source']}] (Score: {m['score']:.2f}):\n{m['content']}")
+        return "\n\n".join(results)
+    except Exception as e:
+        return f"Error querying RAG memory: {type(e).__name__}: {e}"
+
+
+def synthesize_new_tool(name: str, description: str, python_code: str) -> str:
+    """Synthesize, validate, and register a new custom Python Tool function dynamically on-the-fly.
+
+    Use this tool when a task requires custom computation, parsing, data transformation, or custom logic
+    that is not provided by existing standard tools.
+
+    Args:
+        name: Name of the new tool (e.g. 'calculate_fibonacci', 'parse_custom_csv').
+        description: Docstring / summary describing what the tool function does.
+        python_code: Clean Python source code defining a top-level function that implements the tool.
+    """
+    try:
+        from ollama_agents.tool_synthesizer import tool_synthesizer
+        tool_obj = tool_synthesizer.synthesize_tool(name=name, description=description, code=python_code)
+        return f"[Tool Synthesizer] Successfully compiled, validated, and registered custom tool '{tool_obj.name}'! Available for reuse across agents."
+    except Exception as e:
+        return f"[Tool Synthesizer Error] Failed to synthesize tool '{name}': {type(e).__name__}: {e}"
+

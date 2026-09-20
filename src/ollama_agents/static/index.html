@@ -223,11 +223,47 @@
         }
         .chip:hover { background: rgba(99, 102, 241, 0.15); color: #c7d2fe; border-color: rgba(99, 102, 241, 0.3); }
 
+        /* Custom Sleek Scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(9, 13, 22, 0.5);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.35);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(99, 102, 241, 0.6);
+        }
+
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
         .panel {
             background: var(--panel-bg); backdrop-filter: blur(20px);
             border: 1px solid var(--panel-border); border-radius: 16px; padding: 1.5rem;
             box-shadow: 0 8px 32px rgba(0,0,0,0.4); display: flex; flex-direction: column; gap: 1.2rem;
+        }
+
+        /* Input & Select Box Polishing */
+        textarea, select, input[type="text"] {
+            width: 100%;
+            background: rgba(9, 13, 22, 0.8) !important;
+            border: 1px solid var(--panel-border) !important;
+            border-radius: 10px !important;
+            padding: 0.75rem 1rem !important;
+            color: var(--text-main) !important;
+            font-family: inherit !important;
+            font-size: 0.9rem !important;
+            outline: none !important;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3) !important;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+        }
+        textarea:focus, select:focus, input[type="text"]:focus {
+            border-color: var(--primary) !important;
+            box-shadow: 0 0 12px var(--primary-glow), inset 0 2px 4px rgba(0,0,0,0.3) !important;
         }
     </style>
 </head>
@@ -249,7 +285,14 @@
             <button type="button" class="tab-btn" data-tab="hfmodels">🤗 Hugging Face Models</button>
         </div>
 
-        <span class="badge-l4">L4 Autonomous</span>
+        <div style="display: flex; gap: 0.75rem; align-items: center;">
+            <div id="memoryBadge" style="font-size: 0.78rem; background: rgba(99, 102, 241, 0.15); border: 1px solid var(--panel-border); padding: 0.35rem 0.75rem; border-radius: 20px; color: #c7d2fe;" title="Live RAM / GPU VRAM utilization & execution guard">
+                💾 RAM: <span id="ramPct">--%</span> | ⚡ VRAM: <span id="vramPct">--%</span> | Active: <span id="activeAgents">0</span>/3
+            </div>
+            <button onclick="triggerGC()" class="chip" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4);" title="Free memory & clean unreferenced objects">🧹 Free RAM</button>
+            <button onclick="emergencyKillAll()" class="chip" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); font-weight: 600; padding: 0.4rem 0.8rem;">🛑 Emergency Kill All</button>
+            <span class="badge-l4">L4 Autonomous</span>
+        </div>
     </header>
 
     <div class="main-content">
@@ -284,13 +327,30 @@
 
                 <!-- Input Footer -->
                 <div class="chat-input-area">
-                    <div class="chips-bar">
-                        <span class="chip" onclick="sendSample('Fetch recent financial news for Apple (AAPL) stock and summarize key insights.')">📈 AAPL Stock Analysis</span>
-                        <span class="chip" onclick="sendSample('Analyze Python code efficiency tips and write a clean code sample.')">🐍 Python Optimization</span>
-                        <span class="chip" onclick="sendSample('Research top 3 market trends in local AI models for 2026.')">🤖 AI Market Trends</span>
+                    <div class="chips-bar" style="display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 0.2rem;">
+                        <span class="chip" onclick="sendSample('Clone repository https://github.com/octocat/Hello-World.git using github_clone_repo, create a feature branch feature/custom-greeting, edit README.md, commit and push changes with github_commit_and_push.')">🐙 GitHub Workflow (Clone, Branch, Commit, Push)</span>
+                        <span class="chip" onclick="sendSample('Generate an image of a futuristic neon cybernetic city using generate_image_sd_forge.')">🎨 SD Forge Image Gen</span>
+                        <span class="chip" onclick="sendSample('Edit uploaded image uploads/sample.png to add cybernetic metallic armor using edit_image_sd_forge.')">🖼️ Edit Uploaded Image (SD Forge)</span>
+                        <span class="chip" onclick="sendSample('Generate a video of a glowing futuristic neon city with flying vehicles using generate_video_comfyui.')">🎬 ComfyUI Video Gen</span>
+                        <span class="chip" onclick="sendSample('Store key project guidelines in RAG vector memory using rag_add_knowledge and perform a semantic search with rag_search.')">🔍 RAG Vector Memory</span>
+                        <span class="chip" onclick="sendSample('Delegate a specialized Coder sub-agent using model huihui_ai/qwen2.5-abliterate:7b-instruct to write a Python script that calculates Fibonacci numbers and save it to fib.py.')">🤖 Delegate Sub-Agent</span>
                     </div>
+                    
+                    <!-- Uploaded File Attachment Preview Pill -->
+                    <div id="fileUploadPreview" style="display: none; background: rgba(99, 102, 241, 0.15); border: 1px dashed var(--primary); padding: 0.4rem 0.8rem; border-radius: 8px; font-size: 0.82rem; align-items: center; justify-content: space-between;">
+                        <span id="fileUploadInfo" style="color: #c7d2fe;">📄 Attached: uploads/image.png</span>
+                        <button onclick="clearFileUpload()" style="background: none; border: none; color: #ef4444; cursor: pointer; font-weight: bold; font-size: 0.9rem;">✕</button>
+                    </div>
+
                     <div class="input-row">
-                        <textarea id="chatInput" rows="2" placeholder="Type your message or task here (Shift+Enter for newline)..." onkeydown="handleKeyDown(event)"></textarea>
+                        <input type="file" id="fileInput" style="display: none;" onchange="handleFileUpload(event)">
+                        <button type="button" class="btn-send" onclick="document.getElementById('fileInput').click()" id="btnUploadFile" style="background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; padding: 0.85rem;" title="Upload File / Image for analysis or SD Forge image editing">
+                            📁 Upload File
+                        </button>
+                        <textarea id="chatInput" rows="2" placeholder="Type or speak your message, or describe how to edit uploaded image (Shift+Enter for newline)..." onkeydown="handleKeyDown(event)"></textarea>
+                        <button type="button" class="btn-send" onclick="toggleVoiceInput('chatInput', 'btnVoiceChat')" id="btnVoiceChat" style="background: rgba(99, 102, 241, 0.2); border: 1px solid var(--primary); padding: 0.85rem;" title="Voice Input (Speech-to-Text)">
+                            🎙️
+                        </button>
                         <button class="btn-send" onclick="sendMessage()" id="btnSend">
                             <span>Send</span> ➔
                         </button>
@@ -305,8 +365,22 @@
                 <div class="panel">
                     <div style="font-weight: 600; font-size: 1.1rem; border-bottom: 1px solid var(--panel-border); padding-bottom: 0.6rem;">🎯 Create Long-Horizon Goal</div>
                     <div>
-                        <label style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.4rem; display: block;">Goal Description</label>
-                        <textarea id="goalPrompt" rows="3" placeholder="Enter multi-session goal (e.g. Conduct complete investment research on IndBank across 5 sessions)..."></textarea>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                            <label style="font-size: 0.85rem; color: var(--text-muted);">Goal Description</label>
+                            <div style="display: flex; gap: 0.4rem; align-items: center;">
+                                <input type="file" id="goalFileInput" style="display: none;" onchange="handleGoalFileUpload(event)">
+                                <button type="button" class="chip" onclick="document.getElementById('goalFileInput').click()" id="btnUploadGoalFile" style="padding: 0.2rem 0.6rem; font-size: 0.78rem; background: rgba(16, 185, 129, 0.2); border-color: #10b981;">📁 Upload File</button>
+                                <button type="button" class="chip" onclick="toggleVoiceInput('goalPrompt', 'btnVoiceGoal')" id="btnVoiceGoal" style="padding: 0.2rem 0.6rem; font-size: 0.78rem;">🎙️ Dictate Goal</button>
+                            </div>
+                        </div>
+
+                        <!-- Goal Uploaded Attachment Preview Pill -->
+                        <div id="goalFileUploadPreview" style="display: none; margin-bottom: 0.5rem; background: rgba(99, 102, 241, 0.15); border: 1px dashed var(--primary); padding: 0.4rem 0.8rem; border-radius: 8px; font-size: 0.82rem; align-items: center; justify-content: space-between;">
+                            <span id="goalFileUploadInfo" style="color: #c7d2fe;">📄 Attached: uploads/doc.txt</span>
+                            <button onclick="clearGoalFileUpload()" style="background: none; border: none; color: #ef4444; cursor: pointer; font-weight: bold; font-size: 0.9rem;">✕</button>
+                        </div>
+
+                        <textarea id="goalPrompt" rows="3" placeholder="Enter or dictate multi-session goal (e.g. Analyze uploaded report uploads/data.pdf and summarize earnings over 5 sessions)..."></textarea>
                     </div>
                     <div>
                         <label style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.4rem; display: block;">Execution Model</label>
@@ -350,12 +424,28 @@
                     <span style="font-weight: 600; font-size: 1.1rem;">🤗 Live Hugging Face GGUF Model Hub</span>
                     <button class="chip" onclick="fetchTrendingHFModels()">🔥 Refresh Trending</button>
                 </div>
-                <p style="font-size: 0.88rem; color: var(--text-muted);">
-                    Discover new & daily trending GGUF models released by AI researchers worldwide. Easily pull them into local Ollama via <code style="color: #a7f3d0;">ollama run hf.co/...</code>.
-                </p>
                 
-                <div style="display: flex; gap: 0.75rem; margin-top: 0.5rem;">
-                    <input id="hfSearchInput" type="text" placeholder="Search HF GGUF models (e.g. qwen, deepseek, mistral, llama)..." onkeydown="if(event.key==='Enter') searchHFModels();">
+                <!-- Educational Explanatory Banner -->
+                <div style="background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 12px; padding: 1rem; margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.6rem;">
+                    <div style="font-weight: 600; color: #c7d2fe; font-size: 0.95rem;">💡 What is this tab & why should you try new models?</div>
+                    <div style="font-size: 0.85rem; color: var(--text-main); line-height: 1.5;">
+                        AI researchers around the world release hundreds of new open-source AI models every week on <b>Hugging Face</b>. 
+                        <strong>GGUF</strong> is a special quantized file format designed to run ultra-fast on standard laptops and consumer GPUs without high memory consumption.
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.75rem; margin-top: 0.3rem;">
+                        <div style="background: rgba(9, 13, 22, 0.6); padding: 0.7rem; border-radius: 8px; border: 1px solid var(--panel-border);">
+                            <div style="font-weight: 600; font-size: 0.82rem; color: var(--accent-green);">⚡ Why pick new models?</div>
+                            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem;">Newer models offer better reasoning, coding accuracy, faster generation speeds, or specialized domain skills (finance, medical, math).</div>
+                        </div>
+                        <div style="background: rgba(9, 13, 22, 0.6); padding: 0.7rem; border-radius: 8px; border: 1px solid var(--panel-border);">
+                            <div style="font-weight: 600; font-size: 0.82rem; color: var(--accent-amber);">💻 Recommended Sizes</div>
+                            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem;"><b>1B – 4B</b>: Fast on laptops (8GB RAM)<br><b>7B – 14B</b>: Best balance of quality & speed (16GB RAM/VRAM)</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
+                    <input id="hfSearchInput" type="text" placeholder="Search HF GGUF models (e.g. qwen, deepseek, mistral, llama)..." onkeydown="if(event.key==='Enter') searchHFModels();" style="flex: 1; background: rgba(9, 13, 22, 0.8); border: 1px solid var(--panel-border); border-radius: 10px; padding: 0.7rem; color: var(--text-main); font-family: inherit;">
                     <button class="btn-send" onclick="searchHFModels()">🔍 Search HF</button>
                 </div>
 
@@ -429,6 +519,86 @@
             });
         });
 
+        // ── Voice Input (Speech-to-Text with Continuous Listening) ───────────────────
+        let activeRecognition = null;
+        let isUserListeningRequested = false;
+
+        function toggleVoiceInput(targetInputId, btnId) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                alert("Speech recognition is not supported on this browser. Try Google Chrome, MS Edge, or Safari!");
+                return;
+            }
+
+            const btn = document.getElementById(btnId);
+            const input = document.getElementById(targetInputId);
+
+            if (isUserListeningRequested) {
+                // User wants to stop listening
+                isUserListeningRequested = false;
+                if (activeRecognition) {
+                    try { activeRecognition.stop(); } catch(e) {}
+                    activeRecognition = null;
+                }
+                if (btn) {
+                    btn.style.background = "";
+                    btn.innerText = btnId === "btnVoiceChat" ? "🎙️" : "🎙️ Dictate Goal";
+                }
+                return;
+            }
+
+            isUserListeningRequested = true;
+
+            function startRecognitionSession() {
+                if (!isUserListeningRequested) return;
+
+                activeRecognition = new SpeechRecognition();
+                activeRecognition.continuous = true;
+                activeRecognition.interimResults = true;
+                activeRecognition.lang = "en-US";
+
+                if (btn) {
+                    btn.style.background = "rgba(239, 68, 68, 0.3)";
+                    btn.innerText = "🔴 Listening (Continuous)...";
+                }
+
+                activeRecognition.onresult = (event) => {
+                    let transcript = "";
+                    for (let i = 0; i < event.results.length; ++i) {
+                        transcript += event.results[i][0].transcript;
+                    }
+                    if (input) {
+                        input.value = transcript;
+                    }
+                };
+
+                activeRecognition.onerror = (event) => {
+                    console.warn("Speech recognition notice:", event.error);
+                };
+
+                activeRecognition.onend = () => {
+                    // Auto-restart if user has not clicked stop
+                    if (isUserListeningRequested) {
+                        try {
+                            activeRecognition.start();
+                        } catch (e) {
+                            setTimeout(startRecognitionSession, 300);
+                        }
+                    } else {
+                        if (btn) {
+                            btn.style.background = "";
+                            btn.innerText = btnId === "btnVoiceChat" ? "🎙️" : "🎙️ Dictate Goal";
+                        }
+                        activeRecognition = null;
+                    }
+                };
+
+                activeRecognition.start();
+            }
+
+            startRecognitionSession();
+        }
+
         function updateModelLabel(val) {
             document.getElementById("chatModelBadge").innerText = "Model: " + val;
         }
@@ -456,7 +626,7 @@
             `;
         }
 
-        function appendMessage(role, content) {
+        function appendMessage(role, content, fileAttachment = "") {
             const container = document.getElementById("chatMessages");
             const isUser = role === "user";
             const row = document.createElement("div");
@@ -464,12 +634,53 @@
             
             const avatarHtml = isUser ? `<div class="avatar user">👤</div>` : `<div class="avatar agent">🤖</div>`;
             
-            // Format code blocks or markdown simply
+            let extraAttachmentHtml = "";
+            if (fileAttachment) {
+                const ext = fileAttachment.split('.').pop().toLowerCase();
+                const isImg = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext);
+                const fileUrl = `/workspace/${fileAttachment}`;
+                if (isImg) {
+                    extraAttachmentHtml = `
+                        <div style="margin-top: 0.6rem; padding: 0.5rem; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid var(--panel-border);">
+                            <div style="font-size: 0.78rem; color: #818cf8; margin-bottom: 0.4rem;">📷 Uploaded Input Image: <code>${fileAttachment}</code></div>
+                            <img src="${fileUrl}" alt="Input image" style="max-width: 320px; max-height: 240px; border-radius: 8px; object-fit: contain; border: 1px solid rgba(255,255,255,0.1);" onclick="window.open('${fileUrl}', '_blank')">
+                        </div>
+                    `;
+                } else {
+                    extraAttachmentHtml = `
+                        <div style="margin-top: 0.6rem; padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid var(--panel-border); font-size: 0.82rem; color: #818cf8;">
+                            📄 Attached File: <a href="${fileUrl}" target="_blank" style="color: #6366f1;">${fileAttachment}</a>
+                        </div>
+                    `;
+                }
+            }
+
+            // Convert markdown media ![alt](/workspace/...) to <img> or <video> tags based on file extension
             let formattedContent = content
+                .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
+                    const cleanSrc = src.trim();
+                    if (cleanSrc.endsWith('.mp4') || cleanSrc.endsWith('.webm') || cleanSrc.endsWith('.mov')) {
+                        return `<div style="margin-top: 0.6rem;"><video src="${cleanSrc}" controls autoplay loop muted style="max-width: 440px; max-height: 320px; border-radius: 10px; border: 1px solid var(--primary); box-shadow: 0 4px 14px var(--primary-glow);"></video></div>`;
+                    }
+                    return `<div style="margin-top: 0.6rem;"><img src="${cleanSrc}" alt="${alt}" style="max-width: 400px; max-height: 320px; border-radius: 10px; border: 1px solid var(--primary); box-shadow: 0 4px 14px var(--primary-glow);" onclick="window.open('${cleanSrc}', '_blank')"></div>`;
+                })
                 .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
                 .replace(/\n/g, '<br>');
 
-            row.innerHTML = `${avatarHtml}<div class="bubble">${formattedContent}</div>`;
+            // Automatic APK Download Button Detector for Chat
+            let apkNoticeHtml = "";
+            if (content.includes(".apk")) {
+                const apkMatch = content.match(/([\w-]+\.apk)/i);
+                const apkFilename = apkMatch ? apkMatch[1] : "app-debug.apk";
+                apkNoticeHtml = `
+                    <div style="margin-top: 0.8rem; padding: 0.6rem 0.9rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 10px; display: flex; align-items: center; justify-content: space-between;">
+                        <span style="font-size: 0.85rem; color: #a7f3d0; font-weight: 600;">📱 Generated Android APK File: <code>${apkFilename}</code></span>
+                        <a href="/workspace/${apkFilename}" download target="_blank" style="background: #10b981; color: white; padding: 0.4rem 0.9rem; border-radius: 6px; text-decoration: none; font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem;">📥 Download APK</a>
+                    </div>
+                `;
+            }
+
+            row.innerHTML = `${avatarHtml}<div class="bubble">${formattedContent}${extraAttachmentHtml}${apkNoticeHtml}</div>`;
             container.appendChild(row);
             container.scrollTop = container.scrollHeight;
         }
@@ -477,13 +688,23 @@
         async function sendMessage() {
             const input = document.getElementById("chatInput");
             const btn = document.getElementById("btnSend");
-            const prompt = input.value.trim();
+            let prompt = input.value.trim();
             const model = document.getElementById("chatModelSelect").value;
 
-            if (!prompt) return;
+            if (!prompt && !activeUploadedFilePath) return;
 
-            // Render User Bubble
-            appendMessage("user", prompt);
+            const attachedFile = activeUploadedFilePath;
+
+            // If a file is attached and prompt doesn't mention it, automatically include the file reference!
+            if (attachedFile && !prompt.includes(attachedFile)) {
+                prompt = `[Attached File: ${attachedFile}] ${prompt}`;
+            }
+
+            // Clear upload preview pill after attaching
+            clearFileUpload();
+
+            // Render User Bubble with thumbnail if image attached
+            appendMessage("user", prompt, attachedFile);
             input.value = "";
             btn.disabled = true;
             btn.innerHTML = "⏳ Thinking...";
@@ -524,11 +745,74 @@
             }
         }
 
+        let activeGoalUploadedFilePath = "";
+
+        async function handleGoalFileUpload(event) {
+            const files = event.target.files;
+            if (!files || files.length === 0) return;
+            const file = files[0];
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            const uploadBtn = document.getElementById("btnUploadGoalFile");
+            uploadBtn.innerHTML = "⏳ Uploading...";
+            uploadBtn.disabled = true;
+
+            try {
+                const res = await fetch(`${API_BASE}/api/upload`, {
+                    method: "POST",
+                    body: formData
+                });
+                const data = await res.json();
+                if (res.ok && data.status === "success") {
+                    activeGoalUploadedFilePath = data.filepath;
+                    document.getElementById("goalFileUploadInfo").innerText = `📄 Attached: ${data.filepath} (${(data.size / 1024).toFixed(1)} KB)`;
+                    document.getElementById("goalFileUploadPreview").style.display = "flex";
+
+                    const goalPrompt = document.getElementById("goalPrompt");
+                    if (!goalPrompt.value.trim()) {
+                        goalPrompt.value = `Analyze and execute long-horizon goal for uploaded file ${data.filepath}: `;
+                    }
+                } else {
+                    alert("Upload failed: " + (data.detail || data.message || "Unknown error"));
+                }
+            } catch (err) {
+                alert("Upload error: " + err.message);
+            } finally {
+                uploadBtn.innerHTML = "📁 Upload File";
+                uploadBtn.disabled = false;
+                event.target.value = "";
+            }
+        }
+
+        function clearGoalFileUpload() {
+            activeGoalUploadedFilePath = "";
+            document.getElementById("goalFileUploadPreview").style.display = "none";
+        }
+
         async function createGoal() {
-            const prompt = document.getElementById("goalPrompt").value;
+            const promptInput = document.getElementById("goalPrompt");
+            let prompt = promptInput.value.trim();
             const modelSelect = document.getElementById("goalModelSelect");
             const model = modelSelect ? modelSelect.value : "deepseek-r1:8b";
-            if (!prompt.trim()) return alert("Enter a goal prompt!");
+            if (!prompt && !activeGoalUploadedFilePath) return alert("Enter a goal prompt or upload a file!");
+
+            const attachedGoalFile = activeGoalUploadedFilePath;
+
+            // Prepend file attachment if not present in prompt text
+            if (attachedGoalFile && !prompt.includes(attachedGoalFile)) {
+                prompt = `[Attached File: ${attachedGoalFile}] ${prompt}`;
+            }
+
+            clearGoalFileUpload();
+
+            const createBtn = document.querySelector("#tab-goals .panel .btn-send");
+            const origText = createBtn ? createBtn.innerHTML : "+ Decompose & Register Goal";
+            if (createBtn) {
+                createBtn.disabled = true;
+                createBtn.innerHTML = "⏳ Decomposing with LLM...";
+            }
 
             try {
                 const res = await fetch(`${API_BASE}/api/goals/create`, {
@@ -536,16 +820,57 @@
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ prompt, model })
                 });
-                document.getElementById("goalPrompt").value = "";
-                fetchGoals();
-                alert("✓ Goal created and decomposed successfully!");
+                const data = await res.json();
+                if (res.ok && data.status === "success") {
+                    promptInput.value = "";
+                    fetchGoals();
+                    alert(`✓ Goal created successfully with ${data.tasks.length} sub-tasks!`);
+                } else {
+                    alert("Failed to create goal: " + (data.detail || JSON.stringify(data)));
+                }
             } catch (err) {
                 alert("Error creating goal: " + err.message);
+            } finally {
+                if (createBtn) {
+                    createBtn.disabled = false;
+                    createBtn.innerHTML = origText;
+                }
+            }
+        }
+
+        const collapsedGoals = {};
+
+        function toggleGoalCollapse(goalId) {
+            collapsedGoals[goalId] = !collapsedGoals[goalId];
+            fetchGoals();
+        }
+
+        async function deleteGoal(goalId, goalTitle) {
+            if (!confirm(`Are you sure you want to permanently delete goal "${goalTitle}"? This cannot be undone.`)) return;
+            try {
+                const res = await fetch(`${API_BASE}/api/goals/${goalId}`, { method: "DELETE" });
+                const data = await res.json();
+                alert(data.message || "Goal deleted successfully.");
+                fetchGoals();
+            } catch (err) {
+                alert("Failed to delete goal: " + err.message);
             }
         }
 
         async function fetchGoals() {
             const list = document.getElementById("goalsList");
+            // Preserve existing scroll positions of outer container, inner subtask containers, and summary boxes
+            const scrollPositions = {};
+            if (list) {
+                scrollPositions["_main_list"] = list.scrollTop;
+                list.querySelectorAll('[data-subtask-container]').forEach(el => {
+                    scrollPositions[el.getAttribute('data-subtask-container')] = el.scrollTop;
+                });
+                list.querySelectorAll('[data-summary-container]').forEach(el => {
+                    scrollPositions[el.getAttribute('data-summary-container')] = el.scrollTop;
+                });
+            }
+
             try {
                 const res = await fetch(`${API_BASE}/api/goals`);
                 const goals = await res.json();
@@ -555,39 +880,298 @@
                     return;
                 }
 
-                list.innerHTML = goals.map(g => `
+                list.innerHTML = goals.map(g => {
+                    const isRunning = g.tasks && g.tasks.some(t => t.status === "in_progress");
+                    const isCollapsed = !!collapsedGoals[g.goal_id];
+                    const btnText = isRunning ? "⏳ Running..." : "▶ Run Next Task";
+                    const btnDisabled = isRunning ? "disabled" : "";
+                    
+                    const tasksListHtml = (g.tasks || []).map((t, idx) => {
+                        let badgeColor = "#94a3b8";
+                        let badgeBg = "rgba(255,255,255,0.05)";
+                        let icon = "⚪";
+                        if (t.status === "completed") { badgeColor = "#10b981"; badgeBg = "rgba(16, 185, 129, 0.15)"; icon = "✅"; }
+                        else if (t.status === "in_progress") { badgeColor = "#f59e0b"; badgeBg = "rgba(245, 158, 11, 0.15)"; icon = "⏳"; }
+                        else if (t.status === "failed") { badgeColor = "#ef4444"; badgeBg = "rgba(239, 68, 68, 0.15)"; icon = "❌"; }
+
+                        const outputText = t.output || t.result || "";
+                        let resultPreview = "";
+                        let taskApkDownload = "";
+
+                        if (outputText.includes(".apk")) {
+                            const apkMatch = outputText.match(/([\w-]+\.apk)/i);
+                            const apkFilename = apkMatch ? apkMatch[1] : "HelloWorld-debug.apk";
+                            taskApkDownload = `
+                                <div style="margin-top: 0.4rem; padding: 0.4rem 0.6rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 6px; display: flex; align-items: center; justify-content: space-between;">
+                                    <span style="font-size: 0.8rem; color: #a7f3d0; font-weight: 600;">📱 Generated APK: <code>${apkFilename}</code></span>
+                                    <a href="/workspace/${apkFilename}" download target="_blank" style="background: #10b981; color: white; padding: 0.25rem 0.6rem; border-radius: 4px; text-decoration: none; font-size: 0.75rem; font-weight: 600;">📥 Download APK</a>
+                                </div>
+                            `;
+                        }
+
+                        if (outputText) {
+                            resultPreview = `<div style="font-size: 0.8rem; color: #a7f3d0; background: #060911; padding: 0.5rem 0.7rem; border-radius: 6px; margin-top: 0.4rem; font-family: 'JetBrains Mono', monospace; white-space: pre-wrap; max-height: 180px; overflow-y: auto; border: 1px solid rgba(16, 185, 129, 0.2);">${outputText}</div>${taskApkDownload}`;
+                        } else if (t.status === "in_progress") {
+                            resultPreview = `<div style="font-size: 0.78rem; color: #fde68a; margin-top: 0.2rem; font-style: italic;">Agent is actively executing this sub-task...</div>`;
+                        }
+
+                        return `
+                            <div style="background: rgba(17, 24, 39, 0.5); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 0.6rem 0.8rem; margin-top: 0.4rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-size: 0.88rem; color: var(--text-main); font-weight: 500;">
+                                        ${icon} Session ${idx+1}: ${t.description || t.title}
+                                    </span>
+                                    <span style="font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 12px; background: ${badgeBg}; color: ${badgeColor}; font-weight: 600; text-transform: uppercase;">
+                                        ${t.status}
+                                    </span>
+                                </div>
+                                ${resultPreview}
+                            </div>
+                        `;
+                    }).join("");
+
+                    return `
                     <div style="background: rgba(9, 13, 22, 0.6); border: 1px solid var(--panel-border); border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <strong style="color: var(--text-main); font-size: 1rem;">${g.title}</strong>
-                            <span style="color: var(--accent-green); font-weight: 600;">${g.progress_pct.toFixed(0)}%</span>
+                            <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1;">
+                                <button onclick="toggleGoalCollapse('${g.goal_id}')" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.9rem;">
+                                    ${isCollapsed ? '▶' : '▼'}
+                                </button>
+                                <strong style="color: var(--text-main); font-size: 1rem;">${g.title}</strong>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.6rem;">
+                                <span style="color: var(--accent-green); font-weight: 600;">${g.progress_pct.toFixed(0)}%</span>
+                                <button class="chip" onclick="deleteGoal('${g.goal_id}', '${g.title.replace(/'/g, "\\'")}')" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3); padding: 0.2rem 0.5rem; font-size: 0.75rem;" title="Delete Goal">🗑️ Delete</button>
+                            </div>
                         </div>
+                        
                         <div style="background: rgba(255, 255, 255, 0.06); border-radius: 8px; height: 8px; width: 100%; overflow: hidden;">
                             <div style="background: linear-gradient(90deg, var(--primary), var(--accent-green)); height: 100%; width: ${g.progress_pct}%"></div>
                         </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 0.8rem; color: var(--text-muted);">${g.tasks_count} Sub-tasks | Model: ${g.model}</span>
-                            <button class="btn-send" onclick="runGoalTask('${g.goal_id}')" style="padding: 0.3rem 0.7rem; font-size: 0.8rem;">▶ Run Next Task</button>
+                        
+                        <!-- Overall Goal Final Synthesis -->
+                        ${g.final_summary ? `
+                        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; padding: 0.8rem 1rem; margin-top: 0.3rem;">
+                            <div style="font-weight: 600; color: #a7f3d0; font-size: 0.9rem; margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.4rem;">
+                                <span>🎯 Overall Goal Final Synthesis</span>
+                            </div>
+                            <div data-summary-container="summary_${g.goal_id}" style="font-size: 0.85rem; color: var(--text-main); line-height: 1.5; white-space: pre-wrap; max-height: 200px; overflow-y: auto;">${g.final_summary}</div>
+                        </div>
+                        ` : ''}
+
+                        <!-- Sub-tasks Breakdown List (Collapsible) -->
+                        <div style="margin-top: 0.3rem; display: ${isCollapsed ? 'none' : 'block'};">
+                            <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; margin-bottom: 0.2rem;">Sub-task Breakdown (${g.tasks_count} Sessions):</div>
+                            <div data-subtask-container="${g.goal_id}" style="max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.2rem;">
+                                ${tasksListHtml}
+                            </div>
+
+                            <!-- Interactive Follow-Up Question Input with File Attachment -->
+                            <div style="margin-top: 0.6rem; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 8px; padding: 0.6rem;">
+                                <div style="font-size: 0.78rem; color: #818cf8; font-weight: 600; margin-bottom: 0.4rem; display: flex; align-items: center; justify-content: space-between;">
+                                    <span>💬 Ask Follow-up Question on this Goal:</span>
+                                    <div style="display: flex; gap: 0.3rem; align-items: center;">
+                                        <button class="chip" onclick="document.getElementById('followup_file_${g.goal_id}').click()" style="font-size: 0.72rem; padding: 0.15rem 0.45rem;">📁 Attach File</button>
+                                        <button class="chip" onclick="fetchWorkspaceFiles()" style="font-size: 0.72rem; padding: 0.15rem 0.45rem;">📂 Browse App Files</button>
+                                    </div>
+                                </div>
+                                <input type="file" id="followup_file_${g.goal_id}" style="display: none;" onchange="handleFollowupFileUpload(event, '${g.goal_id}')">
+                                <div id="followup_file_preview_${g.goal_id}" style="display: none; font-size: 0.75rem; color: #818cf8; margin-bottom: 0.4rem; background: rgba(0,0,0,0.3); padding: 0.2rem 0.5rem; border-radius: 4px;"></div>
+                                <div style="display: flex; gap: 0.4rem;">
+                                    <input type="text" id="followup_input_${g.goal_id}" placeholder="Ask follow-up (e.g. 'Where is the app code file?', 'Add dark mode')..." style="flex: 1; background: rgba(0,0,0,0.4); border: 1px solid var(--panel-border); border-radius: 6px; padding: 0.4rem 0.6rem; color: white; font-size: 0.85rem;" onkeydown="if(event.key==='Enter') sendFollowup('${g.goal_id}')">
+                                    <button class="btn-send" onclick="sendFollowup('${g.goal_id}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">💬 Ask</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.6rem;">
+                            <span style="font-size: 0.8rem; color: var(--text-muted);">Model: ${g.model}</span>
+                            <div style="display: flex; gap: 0.4rem;">
+                                <button class="btn-send" onclick="runGoalTask('${g.goal_id}')" ${btnDisabled} style="padding: 0.3rem 0.7rem; font-size: 0.8rem; ${isRunning ? 'opacity: 0.6; cursor: not-allowed;' : ''}">${btnText}</button>
+                                ${isRunning ? `<button class="chip" onclick="killGoal('${g.goal_id}')" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.15); padding: 0.3rem 0.6rem; font-size: 0.8rem;">🛑 Kill</button>` : ''}
+                            </div>
                         </div>
                     </div>
-                `).join("");
+                `}).join("");
+
+                // Restore saved scroll positions
+                if (scrollPositions["_main_list"] !== undefined) {
+                    list.scrollTop = scrollPositions["_main_list"];
+                }
+                list.querySelectorAll('[data-subtask-container]').forEach(el => {
+                    const gid = el.getAttribute('data-subtask-container');
+                    if (scrollPositions[gid] !== undefined) {
+                        el.scrollTop = scrollPositions[gid];
+                    }
+                });
+                list.querySelectorAll('[data-summary-container]').forEach(el => {
+                    const sid = el.getAttribute('data-summary-container');
+                    if (scrollPositions[sid] !== undefined) {
+                        el.scrollTop = scrollPositions[sid];
+                    }
+                });
+                return goals;
             } catch (err) {
                 list.innerHTML = `<div style="color: var(--accent-red);">Failed to load goals.</div>`;
+                return [];
+            }
+        }
+
+        async function killGoal(goalId) {
+            if (!confirm("Are you sure you want to stop and kill active execution for this goal?")) return;
+            try {
+                if (window.goalPollTimer) {
+                    clearInterval(window.goalPollTimer);
+                    window.goalPollTimer = null;
+                }
+                const res = await fetch(`${API_BASE}/api/goals/${goalId}/kill`, { method: "POST" });
+                const data = await res.json();
+                alert(data.message || "Goal execution killed successfully.");
+                fetchGoals();
+            } catch (err) {
+                alert("Error stopping goal execution: " + err.message);
+            }
+        }
+
+        async function emergencyKillAll() {
+            if (!confirm("🛑 EMERGENCY KILL SWITCH: Are you sure you want to terminate ALL running processes and reset in-progress task states?")) return;
+            try {
+                if (window.goalPollTimer) {
+                    clearInterval(window.goalPollTimer);
+                    window.goalPollTimer = null;
+                }
+                const res = await fetch(`${API_BASE}/api/tasks/kill-all`, { method: "POST" });
+                const data = await res.json();
+                alert("🛑 " + (data.message || "All running tasks and processes terminated safely."));
+                fetchGoals();
+            } catch (err) {
+                alert("Error triggering emergency kill: " + err.message);
             }
         }
 
         async function runGoalTask(goalId) {
             try {
-                await fetch(`${API_BASE}/api/goals/${goalId}/run`, { method: "POST" });
-                alert(`Goal task execution started! Progress will update automatically as turns finish.`);
-                // Poll progress every 3s for 30s
-                let count = 0;
-                const timer = setInterval(() => {
-                    fetchGoals();
-                    count++;
-                    if (count > 10) clearInterval(timer);
+                await fetch(`${API_BASE}/api/goals/${goalId}/run?auto_continue=true`, { method: "POST" });
+                await fetchGoals();
+                
+                // Clear any existing polling timer
+                if (window.goalPollTimer) {
+                    clearInterval(window.goalPollTimer);
+                    window.goalPollTimer = null;
+                }
+
+                // Poll every 3 seconds only while goals are running
+                window.goalPollTimer = setInterval(async () => {
+                    const goals = await fetchGoals();
+                    const isAnyTaskRunning = goals && Array.isArray(goals) && goals.some(g => 
+                        g.tasks && g.tasks.some(t => t.status === "in_progress")
+                    );
+                    if (!isAnyTaskRunning) {
+                        console.log("All tasks completed. Stopping background polling timer.");
+                        clearInterval(window.goalPollTimer);
+                        window.goalPollTimer = null;
+                    }
                 }, 3000);
             } catch (err) {
                 alert("Failed to run task: " + err.message);
+            }
+        }
+
+        const activeFollowupFiles = {};
+
+        async function handleFollowupFileUpload(event, goalId) {
+            const files = event.target.files;
+            if (!files || files.length === 0) return;
+            const file = files[0];
+            const formData = new FormData();
+            formData.append("file", file);
+
+            const preview = document.getElementById(`followup_file_preview_${goalId}`);
+            if (preview) {
+                preview.style.display = "block";
+                preview.innerText = "⏳ Uploading file...";
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: formData });
+                const data = await res.json();
+                if (res.ok && data.status === "success") {
+                    activeFollowupFiles[goalId] = data.filepath;
+                    if (preview) {
+                        preview.innerText = `📄 Attached: ${data.filepath} (${(data.size / 1024).toFixed(1)} KB)`;
+                    }
+                } else {
+                    alert("Upload failed: " + (data.detail || data.message));
+                }
+            } catch (err) {
+                alert("Upload error: " + err.message);
+            } finally {
+                event.target.value = "";
+            }
+        }
+
+        async function sendFollowup(goalId) {
+            const input = document.getElementById(`followup_input_${goalId}`);
+            if (!input) return;
+            let prompt = input.value.trim();
+            const attachedFile = activeFollowupFiles[goalId] || "";
+
+            if (!prompt && !attachedFile) return alert("Please enter a follow-up question or attach a file!");
+
+            if (attachedFile && !prompt.includes(attachedFile)) {
+                prompt = `[Attached File: ${attachedFile}] ${prompt}`;
+            }
+
+            // Clear attached file state
+            delete activeFollowupFiles[goalId];
+            const preview = document.getElementById(`followup_file_preview_${goalId}`);
+            if (preview) preview.style.display = "none";
+
+            input.value = "";
+            input.placeholder = "⏳ Adding follow-up task and running...";
+            input.disabled = true;
+
+            try {
+                const res = await fetch(`${API_BASE}/api/goals/${goalId}/followup`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ prompt: prompt, auto_run: true })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    await fetchGoals();
+                    if (!window.goalPollTimer) {
+                        window.goalPollTimer = setInterval(async () => {
+                            const goals = await fetchGoals();
+                            const isAnyRunning = goals && Array.isArray(goals) && goals.some(g => g.tasks && g.tasks.some(t => t.status === "in_progress"));
+                            if (!isAnyRunning) {
+                                clearInterval(window.goalPollTimer);
+                                window.goalPollTimer = null;
+                            }
+                        }, 3000);
+                    }
+                } else {
+                    alert("Error posting follow-up: " + (data.detail || JSON.stringify(data)));
+                }
+            } catch (err) {
+                alert("Follow-up error: " + err.message);
+            } finally {
+                input.disabled = false;
+                input.placeholder = "Ask follow-up (e.g. 'Where is the app code file?', 'Add dark mode')...";
+            }
+        }
+
+        async function fetchWorkspaceFiles() {
+            try {
+                const res = await fetch(`${API_BASE}/api/workspace/files`);
+                const data = await res.json();
+                if (!data.files || data.files.length === 0) {
+                    return alert(`📁 Workspace is empty at '${data.workspace_path}'. No files generated yet.`);
+                }
+                const fileListStr = data.files.map(f => `• ${f.relative_path} (${(f.size_bytes / 1024).toFixed(1)} KB)`).join("\n");
+                alert(`📁 Files in Workspace (${data.workspace_path}):\n\n${fileListStr}\n\nAll files are served live at http://localhost:8100/workspace/...`);
+            } catch (err) {
+                alert("Error fetching workspace files: " + err.message);
             }
         }
 
@@ -613,6 +1197,35 @@
             }
         }
 
+        async function pullModel(modelTag) {
+            if (!confirm(`Are you sure you want to download and install model "${modelTag}" into local Ollama?`)) return;
+            try {
+                const res = await fetch(`${API_BASE}/api/models/pull`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ model_tag: modelTag })
+                });
+                const data = await res.json();
+                alert("📥 " + (data.message || "Model download started in background. Refresh installed models once done!"));
+                fetchInstalledModels();
+            } catch (err) {
+                alert("Failed to pull model: " + err.message);
+            }
+        }
+
+        const userLikedModels = {};
+
+        async function likeAndPullModel(modelTag, modelId, btnId) {
+            userLikedModels[modelId] = true;
+            const btn = document.getElementById(btnId);
+            if (btn) {
+                btn.style.background = "#ef4444";
+                btn.style.color = "white";
+                btn.innerHTML = "❤️ Liked & Pulling...";
+            }
+            await pullModel(modelTag);
+        }
+
         async function fetchTrendingHFModels() {
             const list = document.getElementById("hfResultsList");
             if (!list) return;
@@ -627,18 +1240,30 @@
                     return;
                 }
 
-                list.innerHTML = data.results.map(m => `
+                list.innerHTML = data.results.map((m, idx) => {
+                    const isLiked = !!userLikedModels[m.id];
+                    const likeBtnId = `like_btn_tr_${idx}`;
+                    const likeCount = (m.likes || 0) + (isLiked ? 1 : 0);
+                    return `
                     <div style="background: rgba(9, 13, 22, 0.6); border: 1px solid var(--panel-border); border-radius: 10px; padding: 1rem; display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <strong style="color: var(--text-main); font-size: 0.95rem;">${m.id}</strong><br>
-                            <span style="font-size: 0.8rem; color: var(--text-muted);">📥 ${m.downloads.toLocaleString()} downloads | ❤️ ${m.likes.toLocaleString()} likes | Updated: ${m.updated_at}</span>
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <strong style="color: var(--text-main); font-size: 0.95rem;">${m.id}</strong>
+                                <span style="font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 12px; background: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3);">GGUF Model</span>
+                            </div>
+                            <span style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-top: 0.2rem;">
+                                📥 ${m.downloads.toLocaleString()} downloads | ❤️ ${likeCount.toLocaleString()} likes | Updated: ${m.updated_at || 'Recently'}
+                            </span>
                         </div>
-                        <div style="display: flex; gap: 0.5rem; align-items: center;">
-                            <code style="background: #060911; padding: 0.4rem 0.7rem; border-radius: 6px; font-size: 0.8rem; color: #a7f3d0;">ollama run ${m.ollama_tag}</code>
-                            <button class="chip" onclick="navigator.clipboard.writeText('ollama run ${m.ollama_tag}'); alert('Copied to clipboard! Run this in your terminal: ollama run ${m.ollama_tag}');" style="padding: 0.4rem 0.8rem;">📋 Copy</button>
+                        <div style="display: flex; gap: 0.4rem; align-items: center;">
+                            <button id="${likeBtnId}" class="chip" onclick="likeAndPullModel('${m.ollama_tag}', '${m.id}', '${likeBtnId}')" style="font-size: 0.8rem; padding: 0.4rem 0.7rem; border-color: #ef4444; color: ${isLiked ? '#white' : '#f87171'}; background: ${isLiked ? '#ef4444' : 'rgba(239, 68, 68, 0.15)'};">
+                                ${isLiked ? '❤️ Liked & Pulling' : '❤️ Like & Pull'}
+                            </button>
+                            <button class="btn-send" onclick="pullModel('${m.ollama_tag}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">📥 Pull</button>
+                            <button class="chip" onclick="navigator.clipboard.writeText('ollama run ${m.ollama_tag}'); alert('Copied to clipboard! Run this in your terminal: ollama run ${m.ollama_tag}');" style="padding: 0.4rem 0.7rem;">📋 Copy</button>
                         </div>
                     </div>
-                `).join("");
+                `}).join("");
             } catch (err) {
                 list.innerHTML = `<div style="color: var(--accent-red);">Failed to load trending models: ${err.message}</div>`;
             }
@@ -660,27 +1285,133 @@
                     return;
                 }
 
-                list.innerHTML = data.results.map(m => `
+                list.innerHTML = data.results.map((m, idx) => {
+                    const isLiked = !!userLikedModels[m.id];
+                    const likeBtnId = `like_btn_sr_${idx}`;
+                    const likeCount = (m.likes || 0) + (isLiked ? 1 : 0);
+                    return `
                     <div style="background: rgba(9, 13, 22, 0.6); border: 1px solid var(--panel-border); border-radius: 10px; padding: 1rem; display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <strong style="color: var(--text-main); font-size: 0.95rem;">${m.id}</strong><br>
-                            <span style="font-size: 0.8rem; color: var(--text-muted);">📥 ${m.downloads.toLocaleString()} downloads | ❤️ ${m.likes.toLocaleString()} likes</span>
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <strong style="color: var(--text-main); font-size: 0.95rem;">${m.id}</strong>
+                                <span style="font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 12px; background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">Quantized GGUF</span>
+                            </div>
+                            <span style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-top: 0.2rem;">
+                                📥 ${m.downloads.toLocaleString()} downloads | ❤️ ${likeCount.toLocaleString()} likes
+                            </span>
                         </div>
-                        <div style="display: flex; gap: 0.5rem; align-items: center;">
-                            <code style="background: #060911; padding: 0.4rem 0.7rem; border-radius: 6px; font-size: 0.8rem; color: #a7f3d0;">ollama run ${m.ollama_tag}</code>
-                            <button class="chip" onclick="navigator.clipboard.writeText('ollama run ${m.ollama_tag}'); alert('Copied to clipboard! Run this in your terminal: ollama run ${m.ollama_tag}');" style="padding: 0.4rem 0.8rem;">📋 Copy</button>
+                        <div style="display: flex; gap: 0.4rem; align-items: center;">
+                            <button id="${likeBtnId}" class="chip" onclick="likeAndPullModel('${m.ollama_tag}', '${m.id}', '${likeBtnId}')" style="font-size: 0.8rem; padding: 0.4rem 0.7rem; border-color: #ef4444; color: ${isLiked ? '#white' : '#f87171'}; background: ${isLiked ? '#ef4444' : 'rgba(239, 68, 68, 0.15)'};">
+                                ${isLiked ? '❤️ Liked & Pulling' : '❤️ Like & Pull'}
+                            </button>
+                            <button class="btn-send" onclick="pullModel('${m.ollama_tag}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">📥 Pull</button>
+                            <button class="chip" onclick="navigator.clipboard.writeText('ollama run ${m.ollama_tag}'); alert('Copied to clipboard! Run this in your terminal: ollama run ${m.ollama_tag}');" style="padding: 0.4rem 0.7rem;">📋 Copy</button>
                         </div>
                     </div>
-                `).join("");
+                `}).join("");
             } catch (err) {
                 list.innerHTML = `<div style="color: var(--accent-red);">Search failed: ${err.message}</div>`;
             }
         }
 
-        // Initial Load
+        let activeUploadedFilePath = "";
+
+        async function handleFileUpload(event) {
+            const files = event.target.files;
+            if (!files || files.length === 0) return;
+            const file = files[0];
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            const uploadBtn = document.getElementById("btnUploadFile");
+            uploadBtn.innerHTML = "⏳ Uploading...";
+            uploadBtn.disabled = true;
+
+            try {
+                const res = await fetch(`${API_BASE}/api/upload`, {
+                    method: "POST",
+                    body: formData
+                });
+                const data = await res.json();
+                if (res.ok && data.status === "success") {
+                    activeUploadedFilePath = data.filepath;
+                    document.getElementById("fileUploadInfo").innerText = `📄 Attached: ${data.filepath} (${(data.size / 1024).toFixed(1)} KB)`;
+                    document.getElementById("fileUploadPreview").style.display = "flex";
+
+                    const chatInput = document.getElementById("chatInput");
+                    if (!chatInput.value.trim()) {
+                        if (file.type.startsWith("image/")) {
+                            chatInput.value = `Edit uploaded image ${data.filepath} using edit_image_sd_forge to `;
+                        } else {
+                            chatInput.value = `Analyze and extract details from uploaded file ${data.filepath} `;
+                        }
+                    }
+                } else {
+                    alert("Upload failed: " + (data.detail || data.message || "Unknown error"));
+                }
+            } catch (err) {
+                alert("Upload error: " + err.message);
+            } finally {
+                uploadBtn.innerHTML = "📁 Upload File";
+                uploadBtn.disabled = false;
+                event.target.value = "";
+            }
+        }
+
+        function clearFileUpload() {
+            activeUploadedFilePath = "";
+            document.getElementById("fileUploadPreview").style.display = "none";
+        }
+
+        async function fetchSystemStats() {
+            try {
+                const res = await fetch(`${API_BASE}/api/system/stats`);
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById("ramPct").innerText = `${data.ram_used_pct}%`;
+                    document.getElementById("activeAgents").innerText = data.active_agents;
+                    
+                    if (data.gpu && data.gpu.gpu_available) {
+                        document.getElementById("vramPct").innerText = `${data.gpu.vram_used_pct}%`;
+                    } else {
+                        document.getElementById("vramPct").innerText = `N/A`;
+                    }
+
+                    const badge = document.getElementById("memoryBadge");
+                    const vramHigh = data.gpu && data.gpu.gpu_available && data.gpu.vram_used_pct >= 90.0;
+                    const ramHigh = data.ram_used_pct >= 85.0;
+
+                    if (ramHigh || vramHigh) {
+                        badge.style.borderColor = "#ef4444";
+                        badge.style.color = "#ef4444";
+                    } else {
+                        badge.style.borderColor = "var(--panel-border)";
+                        badge.style.color = "#c7d2fe";
+                    }
+                }
+            } catch (e) {
+                console.warn("Stats fetch failed:", e);
+            }
+        }
+
+        async function triggerGC() {
+            try {
+                const res = await fetch(`${API_BASE}/api/system/gc`, { method: "POST" });
+                const data = await res.json();
+                alert(`🧹 Memory cleanup completed!\nCollected ${data.collected_objects} unreferenced objects.\nAvailable RAM: ${data.free_ram_gb} GB`);
+                fetchSystemStats();
+            } catch (e) {
+                alert("GC failed: " + e.message);
+            }
+        }
+
+        // Initial Load & Timers
         fetchInstalledModels();
         fetchGoals();
         fetchReflections();
+        fetchSystemStats();
+        setInterval(fetchSystemStats, 5000);
     </script>
 </body>
 </html>

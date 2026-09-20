@@ -204,8 +204,16 @@ class MemoryStore:
 
     def get_reflections(self, limit: int = 10) -> List[dict]:
         """Return formatted reflection notes for display in CLI and Web Dashboard."""
+        results = []
+        facts = self.recall_facts(query="reflection", limit=limit)
+        for key, value in facts:
+            results.append({"key": key, "content": value})
+        
         notes = self.read_notes(limit=limit)
-        return [{"key": f"Reflection #{i+1}", "content": note} for i, note in enumerate(notes)]
+        for i, note in enumerate(notes):
+            if not any(r["content"] == note for r in results):
+                results.append({"key": f"Reflection Note #{i+1}", "content": note})
+        return results[:limit]
 
     def close(self) -> None:
         self._conn.close()

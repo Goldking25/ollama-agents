@@ -81,6 +81,7 @@ class Goal:
     created: str = field(default_factory=_now)
     updated: str = field(default_factory=_now)
     notes: str = ""
+    final_summary: str = ""
 
     @property
     def progress_pct(self) -> float:
@@ -125,23 +126,24 @@ class Goal:
         """Build a context block injected into the agent's prompt at session start."""
         lines = [
             f"## Long-Horizon Goal Context (Session {self.session_count + 1})",
-            f"Goal: {self.description}",
-            f"Progress: {self.progress_pct:.0f}% ({len(self.completed_tasks)}/{len(self.tasks)} tasks done)",
+            f"Overall Goal: {self.description}",
+            f"Progress: {self.progress_pct:.0f}% ({len(self.completed_tasks)}/{len(self.tasks)} tasks completed)",
             "",
         ]
         if self.completed_tasks:
-            lines.append("### Already completed (DO NOT redo these):")
+            lines.append("### Previous Sessions Completed Sub-Tasks & Outputs (Use this existing work & context!):")
             for t in self.completed_tasks:
-                lines.append(f"- {t.description}")
+                lines.append(f"✓ Sub-task: {t.description}")
                 if t.output:
-                    lines.append(f"  Result: {t.output[:200]}")
+                    lines.append(f"  Output/Artifacts: {t.output[:1200]}")
+            lines.append("\nIMPORTANT INSTRUCTION: Build directly upon the existing code, files, scripts, or APK artifacts produced in the previous sub-tasks above. Do NOT refuse tasks by claiming inability—you have local terminal access, python capabilities, and compilation tools.")
 
         next_t = self.next_task
         if next_t:
-            lines.append(f"\n### Your task for THIS session:")
+            lines.append(f"\n### Your current task for THIS session:")
             lines.append(f"  {next_t.description}")
             lines.append(
-                "\nFocus ONLY on this task. When done, emit 'Final Answer:' with your result."
+                "\nFocus on completing this task. When finished, summarize your work and emit 'Final Answer:' with your result."
             )
 
         if self.notes:
@@ -183,6 +185,21 @@ class GoalRegistry:
     # ------------------------------------------------------------------
     # CRUD
     # ------------------------------------------------------------------
+
+    def add_followup_task(self, goal_id: str, prompt: str) -> Optional[GoalTask]:
+        """Append a new follow-up task to an existing goal."""
+        goal = self.load(goal_id)
+        if not goal:
+            return None
+        task_num = len(goal.tasks) + 1
+        new_task = GoalTask(id=f"task-{task_num:03d}", description=f"Follow-up: {prompt}")
+        goal.tasks.append(new_task)
+        if goal.status == "completed":
+            goal.status = "active"
+            goal.final_summary = ""
+        self._save(goal)
+        logger.info("Added follow-up task to goal '%s': %s", goal_id, prompt)
+        return new_task
 
     def create(
         self,
@@ -229,11 +246,35 @@ class GoalRegistry:
     def exists(self, goal_id: str) -> bool:
         return self._path(goal_id).exists()
 
+    def delete_goal(self, goal_id: str) -> bool:
+        """Delete a goal JSON file from storage. Returns True if deleted, False if not found."""
+        path = self._path(goal_id)
+        if path.exists():
+            try:
+                path.unlink()
+                logger.info("Goal deleted: '%s'", goal_id)
+                return True
+            except Exception as e:
+                logger.error("Failed to delete goal '%s': %s", goal_id, e)
+                return False
+        return False
+
     def _save(self, goal: Goal) -> None:
         goal.updated = _now()
         data = asdict(goal)
-        self._path(goal.id).write_text(json.dumps(data, indent=2), encoding="utf-8")
-        logger.debug("Goal saved: '%s'", goal.id)
+        target_path = self._path(goal.id)
+        temp_path = target_path.with_suffix(".tmp")
+        try:
+            temp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            temp_path.replace(target_path)
+            logger.debug("Goal saved atomically: '%s'", goal.id)
+        except Exception as e:
+            logger.error("Failed to save goal '%s': %s", goal.id, e)
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------------
     # Task management
@@ -265,7 +306,7 @@ class GoalRegistry:
         for task in goal.tasks:
             if task.id == task_id:
                 task.status = "completed"
-                task.output = output[:600]
+                task.output = output[:2000]
                 task.updated = _now()
                 break
 
@@ -275,6 +316,13 @@ class GoalRegistry:
             logger.info("Goal '%s' fully completed!", goal_id)
 
         self._save(goal)
+
+    def save_final_summary(self, goal_id: str, summary: str) -> None:
+        """Save overall synthesis summary for a completed goal."""
+        goal = self.load(goal_id)
+        if goal:
+            goal.final_summary = summary
+            self._save(goal)
 
     def fail_task(self, goal_id: str, task_id: str, reason: str = "") -> None:
         """Mark a task as failed."""

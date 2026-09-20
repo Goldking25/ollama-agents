@@ -52,31 +52,27 @@ class Planner:
         model: Optional[str] = None,
         host: Optional[str] = None,
         max_steps: int = 10,
-        auto_select_model: bool = True,
+        auto_select_model: bool = False,
     ) -> None:
         from ollama_agents.model_selector import select_best_local_model
-        if auto_select_model or model is None:
-            self.model = select_best_local_model(task_type="reasoning", preferred=model)
-        else:
+        if model:
             self.model = model
+        else:
+            self.model = select_best_local_model(task_type="reasoning")
 
         self.max_steps = max_steps
         self.client = ollama.Client(host=host)
         logger.info("Planner initialized using model '%s'", self.model)
 
     def decompose(self, goal: str) -> List[str]:
-        """Break *goal* into an ordered list of subtask strings.
+        """Break *goal* into an ordered list of subtask strings."""
+        # BEFORE STARTING ANYTHING: Check/Generate Skill file first
+        from ollama_agents.skills import SkillRegistry
+        skill_registry = SkillRegistry()
+        skill = skill_registry.ensure_skill_for_goal(goal, model=self.model)
 
-        Returns:
-            A list of subtask strings (without numbering prefix).
-
-        Example::
-
-            steps = planner.decompose("Research NVDA and write an investor brief")
-            # → ["Fetch NVDA price data", "Search for NVDA earnings news", ...]
-        """
-        prompt = f"Goal: {goal.strip()}"
-        logger.info("Planner decomposing goal: %s", goal)
+        prompt = f"Goal: {goal.strip()}\nUsing Skill: {skill.name}\nInstructions: {skill.instructions}"
+        logger.info("Planner decomposing goal with skill '%s': %s", skill.name, goal)
 
         response = self.client.chat(
             model=self.model,
@@ -161,38 +157,48 @@ class Planner:
         logger.info("Replanner produced %d revised steps.", len(steps))
         return steps[: self.max_steps]
 
+    def assess_required_skills(self, goal: str) -> List[str]:
+        """Assess which registered skills and tools are required for a goal before decomposition."""
+        from ollama_agents.skills import SkillRegistry
+        registry = SkillRegistry()
+        available_skills = registry.list_skills()
+
+        # Fast path: keyword matching to avoid extra LLM latency during goal creation
+        goal_lower = goal.lower()
+        matched = []
+        for s in available_skills:
+            if any(tool.lower() in goal_lower for tool in s.required_tools) or s.name.lower() in goal_lower:
+                matched.append(s.name)
+
+        if matched:
+            return matched
+
+        return ["PythonCodingSkill"]
+
     def hierarchical_decompose(
         self,
         goal: str,
         max_tasks: int = 8,
         session_context: str = "",
     ) -> List[str]:
-        """Decompose a long-horizon goal into session-sized, independently executable tasks.
+        """Decompose a long-horizon goal into session-sized, skill-aware tasks."""
+        # BEFORE STARTING ANYTHING: Check if skill file exists; if not, create skill file before planning
+        from ollama_agents.skills import SkillRegistry
+        registry = SkillRegistry()
+        skill = registry.ensure_skill_for_goal(goal, model=self.model)
 
-        Unlike ``decompose()``, this method produces larger tasks each designed
-        to fit within a single agent session (~25 turns). Each task is a
-        meaningful, self-contained unit of work.
+        required_skills = self.assess_required_skills(goal)
+        if skill.name not in required_skills:
+            required_skills.append(skill.name)
 
-        Args:
-            goal: The high-level long-horizon goal.
-            max_tasks: Maximum number of tasks to produce (default 8).
-            session_context: Optional context about the environment or constraints.
+        skill_prompts = []
+        for sk_name in required_skills:
+            sk = registry.load(sk_name)
+            if sk:
+                skill_prompts.append(f"Skill '{sk.name}' (v{sk.version}): {sk.instructions}")
 
-        Returns:
-            Ordered list of session-sized task descriptions.
+        skills_block = "\n".join(skill_prompts) if skill_prompts else ""
 
-        Example::
-
-            tasks = planner.hierarchical_decompose(
-                "Research IndBank stock and write a full investment report"
-            )
-            # -> [
-            #   "Fetch IndBank (INDUSINDBK.NS) current price, 52-week range, and key financials",
-            #   "Search for IndBank news, analyst ratings, and recent developments",
-            #   "Research IndBank's financial health: NPA ratio, ROE, loan book growth",
-            #   "Write a comprehensive markdown investment report with buy/hold/sell recommendation",
-            # ]
-        """
         system = (
             "You are a strategic task planner for a long-horizon autonomous agent. "
             "Break the goal into a numbered list of SESSIONS — each session is one "
@@ -201,31 +207,62 @@ class Planner:
             "  - Be independently runnable without the outputs of later tasks\n"
             "  - Produce a concrete, reusable output (data, file, summary)\n"
             "  - Be specific enough to execute without further clarification\n\n"
+            f"Required Skills Guidance:\n{skills_block}\n\n"
             "Output ONLY the numbered list. No headers, no explanations.\n"
-            "Example:\n"
-            "1. Fetch current price, 52-week high/low, and market cap for the target stock.\n"
-            "2. Search for recent news, earnings reports, and analyst ratings.\n"
-            "3. Research financial health metrics: NPA, ROE, revenue growth.\n"
-            "4. Write a full investment report and save it to 'reports/stock_report.md'.\n"
         )
         prompt = f"Goal: {goal.strip()}"
         if session_context:
             prompt += f"\n\nContext: {session_context}"
 
-        logger.info("Hierarchical planner decomposing: %s", goal[:80])
-        response = self.client.chat(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-            options={"temperature": 0.2, "num_ctx": 4096},
-        )
-        if hasattr(response, "message"):
-            content = response.message.content or ""
-        else:
-            content = response.get("message", {}).get("content", "")
+        logger.info("Hierarchical planner decomposing: %s (Skills: %s)", goal[:80], required_skills)
+        try:
+            # Use short 8.0s timeout so goal registration returns quickly without freezing UI
+            short_client = ollama.Client(timeout=8.0)
+            response = short_client.chat(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+                options={"temperature": 0.2, "num_ctx": 2048},
+            )
+            if hasattr(response, "message"):
+                content = response.message.content or ""
+            else:
+                content = response.get("message", {}).get("content", "")
 
-        tasks = self._parse_steps(content)
-        logger.info("Hierarchical planner produced %d tasks.", len(tasks))
-        return tasks[:max_tasks]
+            tasks = self._parse_steps(content)
+            logger.info("Hierarchical planner produced %d tasks.", len(tasks))
+            if tasks:
+                return tasks[:max_tasks]
+            
+            # Actionable fallback breakdown if LLM output was unparseable
+            return [
+                f"Gather required context and analyze target files for: {goal}",
+                f"Write code, generate media, or perform primary actions for: {goal}",
+                f"Verify, execute, and compile final output report for: {goal}"
+            ]
+        except Exception as e:
+            logger.warning("Goal decomposition failed (%s). Using actionable multi-task breakdown.", e)
+            return [
+                f"Gather required context and analyze target files for: {goal}",
+                f"Write code, generate media, or perform primary actions for: {goal}",
+                f"Verify, execute, and compile final output report for: {goal}"
+            ]
+
+    def auto_refine_skills(self, reflection_text: str) -> None:
+        """Self-improvement pass: update registered skills based on post-task reflection lessons."""
+        from ollama_agents.skills import SkillRegistry
+        registry = SkillRegistry()
+        skills = registry.list_skills()
+
+        for skill in skills:
+            # If reflection notes a failure or optimization related to this skill, update it
+            if any(tool.lower() in reflection_text.lower() for tool in skill.required_tools) or skill.name.lower() in reflection_text.lower():
+                lesson_line = reflection_text.splitlines()[-1] if reflection_text.strip() else reflection_text
+                registry.refine_skill(
+                    skill_name=skill.name,
+                    lesson_learned=f"Auto-Refined from run: {lesson_line[:120]}",
+                    new_instruction=f"Optimized handling based on reflection: {lesson_line[:150]}"
+                )
+                logger.info("Auto-refined skill '%s' based on self-improvement reflection.", skill.name)

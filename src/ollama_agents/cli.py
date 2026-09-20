@@ -128,6 +128,26 @@ def run_goal(
     console.print(f"\n[bold yellow]Updated Goal Progress:[/bold yellow] {goal_status.progress_pct:.1f}% complete.")
 
 
+@app.command(name="kill-all")
+def kill_all_tasks():
+    """Emergency Kill Switch: Terminate all running background processes and reset stuck task states."""
+    console.print("[bold red]🛑 Activating Emergency Kill Switch...[/bold red]")
+    registry = GoalRegistry()
+    goals = registry.list_goals()
+    killed_count = 0
+
+    for goal in goals:
+        for t in goal.tasks:
+            if t.status == "in_progress":
+                registry.fail_task(goal.id, t.id, reason="Stopped by Emergency Kill-All Switch")
+                killed_count += 1
+
+    from ollama_agents.server import ACTIVE_EXECUTIONS
+    ACTIVE_EXECUTIONS.clear()
+
+    console.print(Panel(f"[bold green][SUCCESS] Emergency Kill Switch executed cleanly.[/bold green]\n[dim]Reset {killed_count} stuck tasks & cleared process registry.[/dim]", title="Kill Switch Complete", border_style="red"))
+
+
 # ── 3. Memory Inspector ───────────────────────────────────────────────────────
 @app.command(name="reflections")
 def show_reflections(

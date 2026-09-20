@@ -32,7 +32,7 @@ class Tool:
 
     def __init__(self, func: Callable, description: Optional[str] = None) -> None:
         self.func = func
-        self.name = func.__name__
+        self.name = getattr(func, "__name__", str(func))
         raw_doc = inspect.getdoc(func) or ""
         self.description = description or (raw_doc.split("\n")[0].strip() or "No description provided.")
         self._param_docs = self._parse_param_docs(raw_doc)

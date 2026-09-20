@@ -20,6 +20,7 @@ New L5 features demonstrated:
   run_goal()       — one session, one task, resumable forever
 """
 
+import argparse
 import logging
 from pathlib import Path
 
@@ -55,15 +56,30 @@ GOAL_DESCRIPTION = (
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Ollama Agents CLI / Demo Runner")
+    parser.add_argument("--demo", action="store_true", help="Force creation of sample IndBank demo goal if missing")
+    args = parser.parse_args()
+
     print("=" * 65)
-    print("  Long-Horizon Autonomous Agent  v0.5.0")
-    print("  Goal: IndBank Investment Research")
+    print("  Long-Horizon Autonomous Agent  v0.6.0")
+    print("  Goal Engine & Demo Runner")
     print("=" * 65)
 
     registry = GoalRegistry()
 
-    # ── Create goal on first run, load on subsequent runs ─────────────
+    # If the default demo goal does not exist and --demo was not requested, notify user
     if not registry.exists(GOAL_ID):
+        if not args.demo:
+            print("\n[Notice] No active demo goal found.")
+            print("  - To create the default demo goal, run: python main.py --demo")
+            print("  - Or start the Web UI via start_agent.bat to create custom goals!")
+            existing = registry.list_goals()
+            if existing:
+                print(f"\n[Existing Goals in Storage ({len(existing)})]:")
+                for g in existing:
+                    print(f"  • [{g.id}] {g.description[:60]} ({g.progress_pct:.0f}% complete)")
+            return
+
         print("\n[New Goal] Decomposing into session-sized tasks...")
         planner = Planner(model="llama3.1")
         tasks = planner.hierarchical_decompose(

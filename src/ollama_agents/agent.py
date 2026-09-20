@@ -183,6 +183,51 @@ class Agent:
             return self._to_dict(response["message"])
         raise ValueError(f"Unexpected Ollama response shape: {type(response)}")
 
+    def _parse_text_tool_calls(self, content: str) -> List[Dict[str, Any]]:
+        """Fallback tool call extractor for models like llama3.1 that output JSON objects or code blocks."""
+        import re
+        import json
+
+        calls = []
+        if not content:
+            return calls
+
+        tool_names = set(self.tools.keys()) if self.tools else set()
+
+        # 1. Parse full JSON objects with "name" and "parameters"/"arguments"
+        decoder = json.JSONDecoder()
+        pos = 0
+        while pos < len(content):
+            idx = content.find('{', pos)
+            if idx == -1:
+                break
+            try:
+                obj, end = decoder.raw_decode(content[idx:])
+                pos = idx + end
+                if isinstance(obj, dict) and "name" in obj:
+                    fn_name = obj["name"]
+                    if not tool_names or fn_name in tool_names:
+                        fn_args = obj.get("parameters") or obj.get("arguments") or {}
+                        if not isinstance(fn_args, dict):
+                            fn_args = {}
+                        calls.append({"function": {"name": fn_name, "arguments": fn_args}})
+            except Exception:
+                pos = idx + 1
+
+        if not calls:
+            # 2. Code block fallback ```json ... ```
+            code_blocks = re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", content)
+            for block in code_blocks:
+                try:
+                    data = json.loads(block.strip())
+                    if isinstance(data, dict) and "name" in data and data["name"] in self.tools:
+                        fn_args = data.get("parameters") or data.get("arguments") or {}
+                        calls.append({"function": {"name": data["name"], "arguments": fn_args}})
+                except Exception:
+                    pass
+
+        return calls
+
     # ──────────────────────────────────────────────────────────────────
     # Human-in-the-loop
     # ──────────────────────────────────────────────────────────────────
@@ -258,9 +303,17 @@ class Agent:
                 reflection = response.get("message", {}).get("content", "")
 
             if reflection.strip():
-                key = f"reflection_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}"
+                key = f"reflection_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
                 self.memory.save_fact(key, reflection.strip(), tags="reflection")
+                self.memory.write_note(f"[{key}] {reflection.strip()}")
                 logger.info("[%s] Reflection stored: %s", self.name, key)
+
+                # Auto-refine skill blueprints based on self-improvement lessons
+                if self.planner:
+                    try:
+                        self.planner.auto_refine_skills(reflection.strip())
+                    except Exception as sk_err:
+                        logger.warning("Skill auto-refine failed: %s", sk_err)
         except Exception as e:
             logger.warning("Reflection failed (non-critical): %s", e)
 
@@ -313,7 +366,11 @@ class Agent:
             errors = checkpoint.errors
             start_turn = checkpoint.turn
         else:
-            # Fresh start
+            # Fresh start: Ensure Skill file exists BEFORE doing anything (even before planning)
+            from ollama_agents.skills import SkillRegistry
+            skill_reg = SkillRegistry()
+            skill_reg.ensure_skill_for_goal(user_prompt, model=self.model)
+
             if not self.stateful:
                 self.history = [
                     {"role": "system", "content": self._build_system_prompt(task=user_prompt)}
@@ -385,6 +442,12 @@ class Agent:
             content: str = msg.get("content") or ""
             tool_calls_list: List[Any] = msg.get("tool_calls") or []
             last_content = content
+
+            # Fallback: if model (e.g. llama3.1) returned JSON text tool calls instead of native tool_calls
+            if not tool_calls_list and content:
+                text_calls = self._parse_text_tool_calls(content)
+                if text_calls:
+                    tool_calls_list = text_calls
 
             # ── Goal-completion detection ──────────────────────────────
             if "Final Answer:" in content:
