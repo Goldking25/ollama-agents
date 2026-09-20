@@ -126,7 +126,7 @@ def edit_image_sd_forge(
 
     try:
         logger.info("Sending img2img edit request for '%s' to SD WebUI Forge API at %s...", filepath, endpoint)
-        resp = httpx.post(endpoint, json=payload, timeout=15.0)
+        resp = httpx.post(endpoint, json=payload, timeout=300.0)
         if resp.status_code != 200:
             return (
                 f"[SD WebUI Forge API Error {resp.status_code}]: {resp.text[:200]}.\n"
