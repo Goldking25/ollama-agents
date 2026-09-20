@@ -897,7 +897,7 @@
                 }
             }
 
-            // Convert markdown media ![alt](/workspace/...) to <img> or <video> tags based on file extension
+            // Convert markdown media (![alt](/workspace/...) and [alt](/workspace/images/...)) to <img> or <video> tags
             let formattedContent = content
                 .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
                     const cleanSrc = src.trim();
@@ -905,6 +905,10 @@
                         return `<div style="margin-top: 0.6rem;"><video src="${cleanSrc}" controls autoplay loop muted style="max-width: 440px; max-height: 320px; border-radius: 10px; border: 1px solid var(--primary); box-shadow: 0 4px 14px var(--primary-glow);"></video></div>`;
                     }
                     return `<div style="margin-top: 0.6rem;"><img src="${cleanSrc}" alt="${alt}" style="max-width: 400px; max-height: 320px; border-radius: 10px; border: 1px solid var(--primary); box-shadow: 0 4px 14px var(--primary-glow);" onclick="window.open('${cleanSrc}', '_blank')"></div>`;
+                })
+                .replace(/`~\/ollama_workspace\/images\/([^`]+)`/g, (match, filename) => {
+                    const src = `/workspace/images/${filename}`;
+                    return `<code>~/ollama_workspace/images/${filename}</code><div style="margin-top: 0.6rem;"><img src="${src}" alt="Generated image" style="max-width: 400px; max-height: 320px; border-radius: 10px; border: 1px solid var(--primary); box-shadow: 0 4px 14px var(--primary-glow);" onclick="window.open('${src}', '_blank')"></div>`;
                 })
                 .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
                 .replace(/\n/g, '<br>');
