@@ -18,7 +18,7 @@ def generate_image_sd_forge(
     negative_prompt: str = "blurry, low quality, distorted, bad anatomy",
     width: int = 512,
     height: int = 512,
-    steps: int = 20,
+    steps: int = 5,
     api_url: str = "http://127.0.0.1:7860"
 ) -> str:
     """Generate an image using local Stable Diffusion WebUI Forge API and save it to the workspace.

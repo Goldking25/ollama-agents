@@ -1,14 +1,16 @@
 """Distributed Cluster Engine for Ollama Agents.
 
 Enables multi-node distributed processing across local network laptops/PCs running Ollama.
-Aggregates models across multiple nodes, balances task loads, and offloads heavy sub-agent
-workloads to secondary machines seamlessly.
+Aggregates models across multiple nodes, balances task loads, offloads heavy sub-agent
+workloads to secondary machines seamlessly, and auto-discovers worker nodes via Zeroconf/mDNS.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import socket
+import threading
 import time
 import urllib.request
 from dataclasses import dataclass, field
@@ -27,6 +29,7 @@ class ClusterNode:
     installed_models: List[str] = field(default_factory=list)
     latency_ms: float = 0.0
     active_jobs: int = 0
+    discovered_via: str = "manual"  # 'manual' or 'mdns'
 
     def ping_and_discover(self) -> bool:
         """Check node health and fetch installed Ollama models."""
@@ -34,7 +37,7 @@ class ClusterNode:
         start_time = time.time()
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "OllamaAgentsCluster/0.6.0"})
-            with urllib.request.urlopen(req, timeout=4.0) as resp:
+            with urllib.request.urlopen(req, timeout=3.5) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
                     models = []
@@ -58,18 +61,21 @@ class ClusterNode:
 
 
 class DistributedClusterManager:
-    """Manages a cluster of Ollama node instances across local network laptops."""
+    """Manages a cluster of Ollama node instances across local network laptops with Zeroconf/mDNS auto-discovery."""
 
     def __init__(self, node_urls: Optional[List[str]] = None) -> None:
         self.nodes: Dict[str, ClusterNode] = {}
         # Default local node
-        self.add_node("http://localhost:11434", name="PrimaryLaptop")
+        self.add_node("http://localhost:11434", name="PrimaryLaptop", source="manual")
 
         if node_urls:
             for i, url in enumerate(node_urls, 1):
-                self.add_node(url, name=f"SecondaryLaptop-{i}")
+                self.add_node(url, name=f"SecondaryLaptop-{i}", source="manual")
 
-    def add_node(self, host_url: str, name: Optional[str] = None) -> ClusterNode:
+        # Start mDNS Auto-Discovery Listener in background thread
+        self._start_mdns_discovery_listener()
+
+    def add_node(self, host_url: str, name: Optional[str] = None, source: str = "manual") -> ClusterNode:
         """Add a new laptop/node to the cluster."""
         clean_url = host_url.rstrip("/")
         if not clean_url.startswith(("http://", "https://")):
@@ -78,17 +84,52 @@ class DistributedClusterManager:
             clean_url = f"{clean_url}:11434"
 
         node_name = name or f"Node-{len(self.nodes) + 1}"
-        node = ClusterNode(host_url=clean_url, name=node_name)
+        node = ClusterNode(host_url=clean_url, name=node_name, discovered_via=source)
         node.ping_and_discover()
         self.nodes[clean_url] = node
         return node
+
+    def _start_mdns_discovery_listener(self) -> None:
+        """Background thread scanning local LAN UDP broadcast for secondary Ollama worker nodes."""
+        def _udp_listen():
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind(("", 9999))
+                sock.settimeout(4.0)
+                logger.info("[Zeroconf/mDNS Cluster Discovery] Active on UDP port 9999...")
+
+                while True:
+                    try:
+                        data, addr = sock.recvfrom(1024)
+                        msg = data.decode("utf-8", errors="ignore").strip()
+                        if msg.startswith("OLLAMA_WORKER_ANNOUNCE:"):
+                            parts = msg.split(":")
+                            # Format: OLLAMA_WORKER_ANNOUNCE:<hostname>:<port>
+                            worker_host = addr[0]
+                            worker_port = parts[2] if len(parts) >= 3 else "11434"
+                            target_url = f"http://{worker_host}:{worker_port}"
+
+                            if target_url not in self.nodes:
+                                node_name = f"AutoDiscovered-{parts[1]}" if len(parts) >= 2 else f"AutoDiscovered-{worker_host}"
+                                logger.info("[Zeroconf Auto-Discovered Node] Found %s at %s!", node_name, target_url)
+                                self.add_node(target_url, name=node_name, source="mdns")
+                    except socket.timeout:
+                        pass
+                    except Exception:
+                        time.sleep(2.0)
+            except Exception as e:
+                logger.warning("[mDNS Discovery Listener Offline]: %s", e)
+
+        t = threading.Thread(target=_udp_listen, daemon=True)
+        t.start()
 
     def refresh_cluster_status(self) -> Dict[str, Any]:
         """Ping all cluster nodes and aggregate active models."""
         active_count = 0
         all_models = set()
 
-        for url, node in self.nodes.items():
+        for url, node in list(self.nodes.items()):
             if node.ping_and_discover():
                 active_count += 1
                 all_models.update(node.installed_models)
@@ -103,6 +144,7 @@ class DistributedClusterManager:
                 "active": n.is_active,
                 "latency_ms": n.latency_ms,
                 "models_count": len(n.installed_models),
+                "discovered_via": n.discovered_via,
                 "models": n.installed_models
             } for n in self.nodes.values()]
         }

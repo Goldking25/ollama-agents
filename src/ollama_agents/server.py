@@ -7,7 +7,7 @@ import json
 import asyncio
 from typing import List, Optional, Dict, Any
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,6 +49,23 @@ class AddNodeRequest(BaseModel):
 
 # Global active model pull status tracker
 PULLING_MODELS: Dict[str, Any] = {}
+
+# ── WebSocket Real-Time Streaming Endpoint ──────────────────────────────────────
+@app.websocket("/ws/cluster")
+async def websocket_cluster_stream(websocket: WebSocket):
+    """Bidirectional WebSocket channel for zero-latency cluster status, node discovery, & token streaming."""
+    await websocket.accept()
+    from ollama_agents.cluster import cluster_manager
+    try:
+        while True:
+            # Broadcast cluster status frame over WebSocket
+            status = cluster_manager.refresh_cluster_status()
+            await websocket.send_json({"type": "cluster_status", "data": status})
+            await asyncio.sleep(2.5)
+    except WebSocketDisconnect:
+        logger.info("WebSocket cluster client disconnected.")
+    except Exception as e:
+        logger.warning("WebSocket cluster error: %s", e)
 
 # ── API Endpoints ─────────────────────────────────────────────────────────────
 @app.get("/api/cluster/nodes")

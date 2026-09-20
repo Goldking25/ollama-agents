@@ -1,8 +1,7 @@
 """ComfyUI Video & Image Generation Tool for Ollama Agents.
 
-Integrates with local ComfyUI API endpoint (default: http://127.0.0.1:8188).
-Allows agents to queue video generation prompts (AnimateDiff, Wan2.1, HunyuanVideo, CogVideoX, SVD)
-and fetch generated MP4/GIF outputs into the safe workspace (~/ollama_workspace/videos/).
+Integrates with local ComfyUI API endpoint (default: http://127.0.0.1:8000).
+Allows agents to queue video generation prompts and fetch generated video/animated WEBP outputs into the safe workspace (~/ollama_workspace/videos/).
 """
 
 import json

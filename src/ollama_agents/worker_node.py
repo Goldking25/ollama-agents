@@ -173,18 +173,44 @@ def _get_gpu_vram_stats() -> Dict[str, Any]:
         pass
     return {"gpu_available": False, "vram_total_gb": 0.0, "vram_used_gb": 0.0, "vram_free_gb": 0.0, "vram_used_pct": 0.0, "gpu_util_pct": 0.0}
 
+def _start_mdns_announcer(port: int = 11434):
+    """Broadcast presence via UDP broadcast on local LAN so master nodes auto-discover this worker."""
+    import socket
+    import threading
+
+    def _broadcast():
+        hostname = os.environ.get("COMPUTERNAME", os.environ.get("HOSTNAME", "WorkerNode"))
+        msg = f"OLLAMA_WORKER_ANNOUNCE:{hostname}:{port}".encode("utf-8")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+        while True:
+            try:
+                sock.sendto(msg, ("<broadcast>", 9999))
+            except Exception:
+                pass
+            time.sleep(5.0)
+
+    t = threading.Thread(target=_broadcast, daemon=True)
+    t.start()
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Ollama Agents General Distributed Compute Worker Node")
     parser.add_argument("--host", default="0.0.0.0", help="Host address to bind (default 0.0.0.0)")
     parser.add_argument("--port", type=int, default=9000, help="Port to listen on (default 9000)")
+    parser.add_argument("--ollama-port", type=int, default=11434, help="Port of local Ollama instance (default 11434)")
     args = parser.parse_args()
 
     print(f"===================================================")
     print(f"  Ollama Agents General Distributed Compute Worker")
     print(f"  Listening on http://{args.host}:{args.port}")
     print(f"  Workspace: {WORKSPACE_ROOT}")
+    print(f"  mDNS Auto-Discovery: Active (UDP port 9999)")
     print(f"===================================================")
+
+    _start_mdns_announcer(port=args.ollama_port)
     uvicorn.run(app, host=args.host, port=args.port, reload=False)
 
 if __name__ == "__main__":
