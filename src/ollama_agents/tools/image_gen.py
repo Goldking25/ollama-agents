@@ -15,20 +15,28 @@ WORKSPACE_IMAGES_DIR = Path.home() / "ollama_workspace" / "images"
 
 def generate_image_sd_forge(
     prompt: str,
-    negative_prompt: str = "blurry, low quality, distorted, bad anatomy",
-    width: int = 512,
-    height: int = 512,
+    negative_prompt: str = "",
+    width: int = 1024,
+    height: int = 1024,
     steps: int = 5,
+    cfg_scale: float = 1.0,
+    distill_cfg: float = 3.0,
+    sampler_name: str = "Euler",
+    scheduler: str = "Beta",
     api_url: str = "http://127.0.0.1:7860"
 ) -> str:
-    """Generate an image using local Stable Diffusion WebUI Forge API and save it to the workspace.
+    """Generate an image using local Stable Diffusion WebUI Forge API (FLUX / SDXL) and save it to the workspace.
 
     Args:
-        prompt: Positive text prompt describing the desired image (e.g. 'a futuristic cybernetic robot portrait, 8k, detailed').
-        negative_prompt: What to avoid in the image (default 'blurry, low quality, distorted, bad anatomy').
-        width: Image width in pixels (default 512).
-        height: Image height in pixels (default 512).
-        steps: Inference sampling steps (default 20).
+        prompt: Positive text prompt describing the desired image.
+        negative_prompt: Optional negative text prompt (default '').
+        width: Image width in pixels (default 1024).
+        height: Image height in pixels (default 1024).
+        steps: Inference sampling steps (default 5).
+        cfg_scale: Classifier-free guidance scale (default 1.0).
+        distill_cfg: Distilled CFG scale (default 3.0).
+        sampler_name: Sampler name (default 'Euler').
+        scheduler: Schedule type (default 'Beta').
         api_url: Base URL of running SD WebUI Forge API (default 'http://127.0.0.1:7860').
     """
     try:
@@ -43,8 +51,11 @@ def generate_image_sd_forge(
         "width": width,
         "height": height,
         "steps": steps,
-        "cfg_scale": 7.0,
-        "sampler_name": "Euler a",
+        "cfg_scale": cfg_scale,
+        "distill_cfg": distill_cfg,
+        "distill_cfg_scale": distill_cfg,
+        "sampler_name": sampler_name,
+        "scheduler": scheduler,
     }
 
     try:
