@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0"
 title Ollama Agent Web UI (Port 8100 + Tailscale + SD Forge UI + ComfyUI)
 echo ===================================================================
 echo   Starting Ollama, SD Forge UI, ComfyUI, Tailscale ^& Web UI
@@ -52,10 +53,15 @@ if %errorlevel% neq 0 (
 :: 4. Check Virtual Environment
 echo.
 echo [4/6] Checking Python virtual environment...
-if exist ".venv\Scripts\python.exe" (
+if exist "%~dp0.venv\Scripts\python.exe" (
+    set "PYTHON_CMD=%~dp0.venv\Scripts\python.exe"
+    echo [+] Using virtual environment: %~dp0.venv
+) else if exist ".venv\Scripts\python.exe" (
     set "PYTHON_CMD=.venv\Scripts\python.exe"
+    echo [+] Using local virtual environment: .venv
 ) else (
     set "PYTHON_CMD=python"
+    echo [!] Virtual environment not found. Falling back to global python.
 )
 
 :: 5. Enable Tailscale Remote Network Access
