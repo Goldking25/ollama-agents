@@ -124,9 +124,16 @@ class Agent:
             f"Operating Guidelines:\n{instructions.strip()}"
         )
 
-        self.tools: Dict[str, Tool] = {
-            fn.__name__: Tool(fn) for fn in (tools or [])
-        }
+        self.tools: Dict[str, Tool] = {}
+        for fn in (tools or []):
+            if isinstance(fn, Tool):
+                self.tools[fn.name] = fn
+            elif callable(fn):
+                tool_obj = Tool(fn)
+                self.tools[tool_obj.name] = tool_obj
+            elif isinstance(fn, dict) and "name" in fn:
+                # Handle dict or object representation if passed from API
+                pass
         self.history: List[Dict[str, Any]] = []
         self.reset()
 
