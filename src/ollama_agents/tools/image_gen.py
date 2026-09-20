@@ -20,7 +20,7 @@ def generate_image_sd_forge(
     height: int = 1024,
     steps: int = 5,
     cfg_scale: float = 1.0,
-    distill_cfg: float = 3.0,
+    distill_cfg: float = 1.0,
     sampler_name: str = "Euler",
     scheduler: str = "Beta",
     api_url: str = "http://127.0.0.1:7860"
@@ -34,7 +34,7 @@ def generate_image_sd_forge(
         height: Image height in pixels (default 1024).
         steps: Inference sampling steps (default 5).
         cfg_scale: Classifier-free guidance scale (default 1.0).
-        distill_cfg: Distilled CFG scale (default 3.0).
+        distill_cfg: Distilled CFG scale (default 1.0).
         sampler_name: Sampler name (default 'Euler').
         scheduler: Schedule type (default 'Beta').
         api_url: Base URL of running SD WebUI Forge API (default 'http://127.0.0.1:7860').
