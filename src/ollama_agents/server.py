@@ -50,6 +50,9 @@ class AddNodeRequest(BaseModel):
 # Global active model pull status tracker
 PULLING_MODELS: Dict[str, Any] = {}
 
+import logging
+logger = logging.getLogger(__name__)
+
 # ── WebSocket Real-Time Streaming Endpoint ──────────────────────────────────────
 @app.websocket("/ws/cluster")
 async def websocket_cluster_stream(websocket: WebSocket):
@@ -62,10 +65,8 @@ async def websocket_cluster_stream(websocket: WebSocket):
             status = cluster_manager.refresh_cluster_status()
             await websocket.send_json({"type": "cluster_status", "data": status})
             await asyncio.sleep(2.5)
-    except WebSocketDisconnect:
-        logger.info("WebSocket cluster client disconnected.")
-    except Exception as e:
-        logger.warning("WebSocket cluster error: %s", e)
+    except (WebSocketDisconnect, RuntimeError, Exception) as e:
+        logger.debug("WebSocket cluster connection closed: %s", e)
 
 # ── API Endpoints ─────────────────────────────────────────────────────────────
 @app.get("/api/cluster/nodes")
@@ -257,7 +258,7 @@ def api_run_goal_task(goal_id: str, background_tasks: BackgroundTasks, auto_cont
     def _execute():
         ACTIVE_EXECUTIONS[goal_id] = {"status": "running"}
         try:
-            from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status
+            from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright
             
             while True:
                 # Re-fetch latest goal state
@@ -298,7 +299,7 @@ def api_run_goal_task(goal_id: str, background_tasks: BackgroundTasks, auto_cont
                 memory = MemoryStore(agent_name="AssistantAgent")
                 agent = Agent(
                     model=model_name,
-                    tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status],
+                    tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright],
                     memory=memory,
                     max_turns=25
                 )
@@ -366,11 +367,11 @@ def api_kill_all_executions():
 def api_run_single_task(req: SingleTaskRequest):
     """Run a single task synchronously and return the result."""
     try:
-        from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status
+        from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright
         memory = MemoryStore(agent_name="AssistantAgent")
         agent = Agent(
             model=req.model,
-            tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status],
+            tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright],
             memory=memory,
             max_turns=req.max_turns
         )

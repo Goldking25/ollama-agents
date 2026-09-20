@@ -14,6 +14,7 @@
 - 🎨 **Multimodal Media Generation**: Built-in tools for Stable Diffusion WebUI Forge (Image Gen & Editing) and ComfyUI (Video Gen).
 - 🤗 **Hugging Face Model Hub**: Search, inspect, and pull trending GGUF models directly into local Ollama storage from the Web Dashboard.
 - 🛡️ **Memory Safety Guard**: Real-time RAM/VRAM resource monitoring and garbage collection to prevent out-of-memory (OOM) crashes.
+- 🧪 **Playwright Automated UAT Testing**: Built-in User Acceptance Testing tool (`test_ui_playwright`) for automatic end-to-end web browser validation, form interaction, and visual screenshot verification at the end of development.
 - 📱 **Mobile-Responsive Control Center**: Sleek indigo glassmorphism Web Dashboard fully optimized for desktop, tablet, and mobile screens (`http://localhost:8100`).
 
 ---

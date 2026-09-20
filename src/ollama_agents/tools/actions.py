@@ -222,7 +222,7 @@ def delegate_subagent(role: str, task: str, model: str = "deepseek-r1:8b") -> st
     try:
         from ollama_agents.agent import Agent
         from ollama_agents.memory_manager import memory_manager
-        from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python
+        from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, test_ui_playwright
 
         with memory_manager.acquire_execution_slot(timeout=45.0):
             sub_agent = Agent(
@@ -230,7 +230,7 @@ def delegate_subagent(role: str, task: str, model: str = "deepseek-r1:8b") -> st
                 role=role,
                 instructions=f"You are a specialized sub-agent acting as a {role}. Execute the assigned sub-task thoroughly and concisely.",
                 model=model,
-                tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote],
+                tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, test_ui_playwright],
                 max_turns=15
             )
             result = sub_agent.run(task)
