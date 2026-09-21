@@ -570,22 +570,22 @@ class Agent:
             # ── No tool calls and no Final Answer ─────────────────────
             if not tool_calls_list:
                 stripped_content = content.strip()
-                # If model emitted an intermediate 'Thought:' or reasoning without calling a tool or giving a final answer, prompt it to proceed
+                # If model emitted an intermediate 'Thought:' without calling a tool, give it up to 2 chances to call a tool
                 is_thought = (
-                    "Thought:" in stripped_content
-                    or stripped_content.startswith("Thought")
-                    or stripped_content.startswith("Reasoning:")
-                    or stripped_content.startswith("Plan:")
-                    or "<think>" in stripped_content
+                    stripped_content.startswith("Thought:")
+                    or stripped_content.startswith("Thought :")
+                    or ("<think>" in stripped_content and "</think>" not in stripped_content)
                 )
-                # Also check if it looks like unfinished reasoning: doesn't have Final Answer and agent has tools
-                if (is_thought or (self.tools and turn == 0 and len(stripped_content) < 400)) and (turn + 1 < limit):
-                    logger.info("[%s] Emitted intermediate thought/reasoning without action. Prompting to proceed with tool call...", self.name)
+                thought_nudges = getattr(self, "_thought_nudges", 0)
+                if is_thought and thought_nudges < 2 and (turn + 1 < limit):
+                    self._thought_nudges = thought_nudges + 1
+                    logger.info("[%s] Intermediate thought without tool call (nudge %d/2). Prompting...", self.name, self._thought_nudges)
                     self.history.append({
                         "role": "user",
-                        "content": "You stated your thought, but did not invoke a tool call. Execute the necessary tool call now (e.g., write_file, build_android_apk, etc.) or provide 'Final Answer: <result>' when done."
+                        "content": "Execute the tool call for your thought now, or provide 'Final Answer: <result>'."
                     })
                     continue
+                self._thought_nudges = 0
 
                 if content:
                     if self.memory:

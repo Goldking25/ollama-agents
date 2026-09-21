@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from ollama_agents import Agent, GoalRegistry, MemoryStore
+from ollama_agents.exceptions import MaxTurnsExceeded
 
 app = FastAPI(title="Ollama Agents Web Dashboard", version="0.6.0")
 
@@ -401,7 +402,14 @@ def api_run_single_task(req: SingleTaskRequest):
             )
 
         agent = SESSION_AGENTS[session_key]
-        result = agent.run(req.prompt)
+        try:
+            result = agent.run(req.prompt)
+        except MaxTurnsExceeded as mte:
+            last_out = getattr(mte, 'last_output', '') or ''
+            result = (
+                f"{last_out}\n\n"
+                f"*(Note: Reached turn limit of {mte.turns}. You can ask me to continue or expand on any step above.)*"
+            )
         return {"status": "completed", "result": result, "session_id": session_key}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
