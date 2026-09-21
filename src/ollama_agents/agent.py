@@ -241,7 +241,23 @@ class Agent:
                 pos = idx + 1
 
         if not calls:
-            # 2. Code block fallback ```json ... ```
+            # 2. XML <tool_call> block fallback (commonly used by Qwen/Hermes models)
+            xml_blocks = re.findall(r"<tool_call>\s*([\s\S]*?)\s*(?:</tool_call>|$)", content)
+            for block in xml_blocks:
+                try:
+                    data = json.loads(block.strip())
+                    if isinstance(data, dict) and "name" in data:
+                        fn_name = data["name"]
+                        if not tool_names or fn_name in tool_names:
+                            fn_args = data.get("parameters") or data.get("arguments") or {}
+                            if not isinstance(fn_args, dict):
+                                fn_args = {}
+                            calls.append({"function": {"name": fn_name, "arguments": fn_args}})
+                except Exception:
+                    pass
+
+        if not calls:
+            # 3. Code block fallback ```json ... ```
             code_blocks = re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", content)
             for block in code_blocks:
                 try:
@@ -452,13 +468,24 @@ class Agent:
                     options=options,
                 )
             except ollama.ResponseError as err:
-                if "does not support tools" in str(err).lower() or err.status_code == 400:
-                    # Model doesn't support native tool parameter - fall back to text prompt tools
-                    response = self.client.chat(
-                        model=self.model,
-                        messages=self.history,
-                        options=options,
-                    )
+                err_str = str(err).lower()
+                if (
+                    "does not support tools" in err_str
+                    or "xml syntax error" in err_str
+                    or "unexpected eof" in err_str
+                    or err.status_code in (400, 500)
+                ):
+                    # Model/Ollama failed parsing native tools via XML - fall back to text prompt tools
+                    logger.warning("[%s] Native tool error (%s). Retrying chat without native tool formatting...", self.name, err)
+                    try:
+                        response = self.client.chat(
+                            model=self.model,
+                            messages=self.history,
+                            options=options,
+                        )
+                    except Exception as fallback_err:
+                        logger.error("[%s] Fallback chat failed: %s", self.name, fallback_err)
+                        raise fallback_err
                 else:
                     raise err
 
