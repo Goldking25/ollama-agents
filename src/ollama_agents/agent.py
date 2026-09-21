@@ -40,6 +40,7 @@ Rules:
 - Emit "Final Answer:" only when the task is fully complete.
 - If a tool fails, reason about why and try an alternative approach.
 - When the plan is updated, follow the new steps.
+- IMPORTANT FOR ANDROID & APK REQUESTS: When asked for an Android app, APK file, mobile app, or .apk compilation, you MUST call the `build_android_apk` tool to compile and generate the actual .apk file. Do NOT tell the user to compile it themselves or that you cannot build APKs. You HAVE the `build_android_apk` tool installed.
 """
 
 # ─── Reflection prompt ────────────────────────────────────────────────────────
