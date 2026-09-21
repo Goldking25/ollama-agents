@@ -409,7 +409,6 @@
                 <!-- Input Footer -->
                 <div class="chat-input-area">
                     <div class="chips-bar" style="display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 0.2rem;">
-                        <span class="chip" onclick="sendSample('Compile and build Android APK file using build_android_apk for our nearby device data and screen sharing app, save as NearbyShare-debug.apk.')">📱 Build Android APK (.apk)</span>
                         <span class="chip" onclick="sendSample('Clone repository https://github.com/octocat/Hello-World.git using github_clone_repo, create a feature branch feature/custom-greeting, edit README.md, commit and push changes with github_commit_and_push.')">🐙 GitHub Workflow (Clone, Branch, Commit, Push)</span>
                         <span class="chip" onclick="sendSample('Generate an image of a futuristic neon cybernetic city using generate_image_sd_forge.')">🎨 SD Forge Image Gen</span>
                         <span class="chip" onclick="sendSample('Edit uploaded image uploads/sample.png to add cybernetic metallic armor using edit_image_sd_forge.')">🖼️ Edit Uploaded Image (SD Forge)</span>
@@ -1259,7 +1258,9 @@
                                 <div style="font-size: 0.78rem; color: #818cf8; font-weight: 600; margin-bottom: 0.4rem; display: flex; align-items: center; justify-content: space-between;">
                                     <span>💬 Ask Follow-up Question on this Goal:</span>
                                     <div style="display: flex; gap: 0.3rem; align-items: center;">
-                                        <a href="/workspace/NearbyShare-debug.apk" download target="_blank" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); text-decoration: none; padding: 0.15rem 0.45rem; border-radius: 12px; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem;">📱 Download APK</a>
+                                        ${(g.title.toLowerCase().includes("apk") || (g.final_summary && g.final_summary.toLowerCase().includes(".apk"))) ? `
+                                            <a href="/workspace/NearbyShare-debug.apk" download target="_blank" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); text-decoration: none; padding: 0.15rem 0.45rem; border-radius: 12px; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem;">📱 Download APK</a>
+                                        ` : ''}
                                         <button class="chip" onclick="document.getElementById('followup_file_${g.goal_id}').click()" style="font-size: 0.72rem; padding: 0.15rem 0.45rem;">📁 Attach File</button>
                                         <button class="chip" onclick="fetchWorkspaceFiles()" style="font-size: 0.72rem; padding: 0.15rem 0.45rem;">📂 Browse App Files</button>
                                     </div>
