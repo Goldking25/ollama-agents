@@ -5,6 +5,7 @@ from .image_gen import generate_image_sd_forge, edit_image_sd_forge, edit_image
 from .comfyui import generate_video_comfyui
 from .github import github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status
 from .playwright_testing import test_ui_playwright
+from .android_builder import build_android_apk
 
 __all__ = [
     # Data tools
@@ -32,4 +33,6 @@ __all__ = [
     "github_status",
     # Testing tools
     "test_ui_playwright",
+    # Android compilation tools
+    "build_android_apk",
 ]

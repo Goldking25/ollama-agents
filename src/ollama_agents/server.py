@@ -258,7 +258,7 @@ def api_run_goal_task(goal_id: str, background_tasks: BackgroundTasks, auto_cont
     def _execute():
         ACTIVE_EXECUTIONS[goal_id] = {"status": "running"}
         try:
-            from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright
+            from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk
             
             while True:
                 # Re-fetch latest goal state
@@ -304,7 +304,7 @@ def api_run_goal_task(goal_id: str, background_tasks: BackgroundTasks, auto_cont
                 agent = Agent(
                     model=model_name,
                     host=host_url,
-                    tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright],
+                    tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk],
                     memory=memory,
                     max_turns=25
                 )
@@ -381,7 +381,7 @@ SESSION_AGENTS: Dict[str, Agent] = {}
 def api_run_single_task(req: SingleTaskRequest):
     """Run a single task or conversation message with stateful history persistence."""
     try:
-        from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright
+        from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk
         from ollama_agents.cluster import cluster_manager
 
         session_key = req.session_id or "default_session"
@@ -394,7 +394,7 @@ def api_run_single_task(req: SingleTaskRequest):
             SESSION_AGENTS[session_key] = Agent(
                 model=req.model,
                 host=host_url,
-                tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright],
+                tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk],
                 memory=memory,
                 stateful=True,
                 max_turns=req.max_turns
