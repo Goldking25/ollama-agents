@@ -72,6 +72,15 @@ class MemoryStore:
                 note      TEXT NOT NULL,
                 created   TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role       TEXT NOT NULL,
+                content    TEXT NOT NULL,
+                attachment TEXT DEFAULT '',
+                created    TEXT NOT NULL
+            );
         """)
         self._conn.commit()
 
@@ -163,6 +172,42 @@ class MemoryStore:
             "SELECT note FROM scratchpad ORDER BY id DESC LIMIT ?", (limit,)
         )
         return [row[0] for row in reversed(cur.fetchall())]
+
+    # ------------------------------------------------------------------
+    # Chat Messages  (persistent conversation history for Web UI)
+    # ------------------------------------------------------------------
+
+    def save_chat_message(self, session_id: str, role: str, content: str, attachment: str = "") -> None:
+        """Persist a user or agent message into database."""
+        self._conn.execute(
+            "INSERT INTO chat_messages (session_id, role, content, attachment, created) VALUES (?,?,?,?,?)",
+            (session_id, role, content, attachment, _now()),
+        )
+        self._conn.commit()
+
+    def get_chat_history(self, session_id: str = "default_session", limit: int = 100) -> List[dict]:
+        """Return chronological chat history for a session."""
+        cur = self._conn.cursor()
+        cur.execute(
+            "SELECT id, role, content, attachment, created FROM chat_messages WHERE session_id = ? ORDER BY id ASC LIMIT ?",
+            (session_id, limit),
+        )
+        rows = cur.fetchall()
+        return [
+            {
+                "id": r[0],
+                "role": r[1],
+                "content": r[2],
+                "attachment": r[3] or "",
+                "created": r[4]
+            }
+            for r in rows
+        ]
+
+    def clear_chat_history(self, session_id: str = "default_session") -> None:
+        """Clear all chat messages for a session."""
+        self._conn.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
+        self._conn.commit()
 
     # ------------------------------------------------------------------
     # Helpers for system-prompt injection

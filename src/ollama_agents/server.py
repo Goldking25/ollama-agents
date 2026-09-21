@@ -374,6 +374,7 @@ class SingleTaskRequest(BaseModel):
     model: str = "deepseek-r1:8b"
     max_turns: int = 50
     session_id: Optional[str] = "default_session"
+    attachment: Optional[str] = ""
 
 # Global session agents registry for stateful chat history
 SESSION_AGENTS: Dict[str, Agent] = {}
@@ -392,7 +393,7 @@ def api_run_single_task(req: SingleTaskRequest):
         # Reuse existing stateful Agent or create a new session agent
         if session_key not in SESSION_AGENTS or SESSION_AGENTS[session_key].model != req.model:
             memory = MemoryStore(agent_name="AssistantAgent")
-            SESSION_AGENTS[session_key] = Agent(
+            new_agent = Agent(
                 model=req.model,
                 host=host_url,
                 tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk],
@@ -400,9 +401,21 @@ def api_run_single_task(req: SingleTaskRequest):
                 stateful=True,
                 max_turns=req.max_turns
             )
+            # Rehydrate in-memory conversational history from persistent DB
+            prior_msgs = memory.get_chat_history(session_id=session_key, limit=30)
+            for pm in prior_msgs:
+                role = "user" if pm["role"] == "user" else "assistant"
+                new_agent.history.append({"role": role, "content": pm["content"]})
+            
+            SESSION_AGENTS[session_key] = new_agent
 
         agent = SESSION_AGENTS[session_key]
         agent.max_turns = req.max_turns
+        
+        # Save user message to persistent DB
+        mem = agent.memory or MemoryStore(agent_name="AssistantAgent")
+        mem.save_chat_message(session_id=session_key, role="user", content=req.prompt, attachment=req.attachment or "")
+
         try:
             result = agent.run(req.prompt, max_turns=req.max_turns)
         except MaxTurnsExceeded as mte:
@@ -411,9 +424,21 @@ def api_run_single_task(req: SingleTaskRequest):
                 f"{last_out}\n\n"
                 f"*(Note: Reached turn limit of {mte.turns}. You can ask me to continue or expand on any step above.)*"
             )
+        
+        # Save agent response to persistent DB
+        mem.save_chat_message(session_id=session_key, role="agent", content=result)
+
         return {"status": "completed", "result": result, "session_id": session_key}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chat/history")
+def api_get_chat_history(session_id: Optional[str] = "default_session", limit: int = 100):
+    """Retrieve full historical chat messages for a session from persistent database."""
+    session_key = session_id or "default_session"
+    mem = MemoryStore(agent_name="AssistantAgent")
+    messages = mem.get_chat_history(session_id=session_key, limit=limit)
+    return {"status": "success", "session_id": session_key, "messages": messages}
 
 @app.post("/api/chat/clear")
 def api_clear_chat(session_id: Optional[str] = "default_session"):
@@ -421,6 +446,8 @@ def api_clear_chat(session_id: Optional[str] = "default_session"):
     session_key = session_id or "default_session"
     if session_key in SESSION_AGENTS:
         SESSION_AGENTS.pop(session_key, None)
+    mem = MemoryStore(agent_name="AssistantAgent")
+    mem.clear_chat_history(session_id=session_key)
     return {"status": "success", "message": f"Cleared session agent history for '{session_key}'."}
 
 @app.get("/api/reflections")
