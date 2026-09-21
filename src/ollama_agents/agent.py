@@ -37,7 +37,8 @@ Final Answer: <your complete response>
 
 Rules:
 - Always start with a Thought before calling a tool.
-- Emit "Final Answer:" only when the task is fully complete.
+- NEVER stop after writing a Thought. A Thought MUST always be immediately accompanied by its corresponding Tool Call.
+- Emit "Final Answer:" only when the entire task is completely fulfilled.
 - If a tool fails, reason about why and try an alternative approach.
 - When the plan is updated, follow the new steps.
 - IMPORTANT FOR ANDROID & APK REQUESTS: When asked for an Android app, APK file, mobile app, or .apk compilation, you MUST call the `build_android_apk` tool to compile and generate the actual .apk file. Do NOT tell the user to compile it themselves or that you cannot build APKs. You HAVE the `build_android_apk` tool installed.
@@ -267,6 +268,22 @@ class Agent:
                         calls.append({"function": {"name": data["name"], "arguments": fn_args}})
                 except Exception:
                     pass
+
+        if not calls:
+            # 4. Action / Action Input regex format (classic ReAct)
+            # e.g.: Action: write_file\nAction Input: {"path": "...", "content": "..."}
+            action_match = re.search(r"Action\s*:\s*([a-zA-Z0-9_-]+)[\r\n]+Action\s*Input\s*:\s*([\s\S]+?)(?=(?:\nAction:|\nThought:|\nObservation:|$))", content, re.IGNORECASE)
+            if action_match:
+                fn_name = action_match.group(1).strip()
+                raw_args = action_match.group(2).strip()
+                if not tool_names or fn_name in tool_names:
+                    try:
+                        fn_args = json.loads(raw_args)
+                    except Exception:
+                        fn_args = {"input": raw_args}
+                    if not isinstance(fn_args, dict):
+                        fn_args = {"input": fn_args}
+                    calls.append({"function": {"name": fn_name, "arguments": fn_args}})
 
         return calls
 
@@ -552,19 +569,21 @@ class Agent:
 
             # ── No tool calls and no Final Answer ─────────────────────
             if not tool_calls_list:
-                # If model emitted an intermediate 'Thought:' without calling a tool or giving a final answer, prompt it to proceed
                 stripped_content = content.strip()
-                is_intermediate_thought = (
-                    stripped_content.startswith("Thought:") or
-                    stripped_content.startswith("Thought :") or
-                    ("Thought:" in stripped_content and len(stripped_content.splitlines()) <= 2)
+                # If model emitted an intermediate 'Thought:' or reasoning without calling a tool or giving a final answer, prompt it to proceed
+                is_thought = (
+                    "Thought:" in stripped_content
+                    or stripped_content.startswith("Thought")
+                    or stripped_content.startswith("Reasoning:")
+                    or stripped_content.startswith("Plan:")
+                    or "<think>" in stripped_content
                 )
-
-                if is_intermediate_thought and (turn + 1 < limit):
-                    logger.info("[%s] Emitted intermediate thought without action. Prompting to proceed with tool call...", self.name)
+                # Also check if it looks like unfinished reasoning: doesn't have Final Answer and agent has tools
+                if (is_thought or (self.tools and turn == 0 and len(stripped_content) < 400)) and (turn + 1 < limit):
+                    logger.info("[%s] Emitted intermediate thought/reasoning without action. Prompting to proceed with tool call...", self.name)
                     self.history.append({
                         "role": "user",
-                        "content": "Proceed with executing the tool call for this thought, or provide 'Final Answer: <result>' when finished."
+                        "content": "You stated your thought, but did not invoke a tool call. Execute the necessary tool call now (e.g., write_file, build_android_apk, etc.) or provide 'Final Answer: <result>' when done."
                     })
                     continue
 
