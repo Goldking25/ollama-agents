@@ -525,6 +525,22 @@ class Agent:
 
             # ── No tool calls and no Final Answer ─────────────────────
             if not tool_calls_list:
+                # If model emitted an intermediate 'Thought:' without calling a tool or giving a final answer, prompt it to proceed
+                stripped_content = content.strip()
+                is_intermediate_thought = (
+                    stripped_content.startswith("Thought:") or
+                    stripped_content.startswith("Thought :") or
+                    ("Thought:" in stripped_content and len(stripped_content.splitlines()) <= 2)
+                )
+
+                if is_intermediate_thought and (turn + 1 < limit):
+                    logger.info("[%s] Emitted intermediate thought without action. Prompting to proceed with tool call...", self.name)
+                    self.history.append({
+                        "role": "user",
+                        "content": "Proceed with executing the tool call for this thought, or provide 'Final Answer: <result>' when finished."
+                    })
+                    continue
+
                 if content:
                     if self.memory:
                         self.memory.save_episode(task=user_prompt[:120], summary=content[:400])
