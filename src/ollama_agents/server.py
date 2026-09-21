@@ -363,22 +363,47 @@ def api_kill_all_executions():
     ACTIVE_EXECUTIONS.clear()
     return {"status": "success", "message": f"Emergency Kill Switch activated. Cleared {killed_count} active tasks."}
 
+class SingleTaskRequest(BaseModel):
+    prompt: str
+    model: str = "deepseek-r1:8b"
+    max_turns: int = 25
+    session_id: Optional[str] = "default_session"
+
+# Global session agents registry for stateful chat history
+SESSION_AGENTS: Dict[str, Agent] = {}
+
 @app.post("/api/task/run")
 def api_run_single_task(req: SingleTaskRequest):
-    """Run a single task synchronously and return the result."""
+    """Run a single task or conversation message with stateful history persistence."""
     try:
         from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright
-        memory = MemoryStore(agent_name="AssistantAgent")
-        agent = Agent(
-            model=req.model,
-            tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright],
-            memory=memory,
-            max_turns=req.max_turns
-        )
+
+        session_key = req.session_id or "default_session"
+
+        # Reuse existing stateful Agent or create a new session agent
+        if session_key not in SESSION_AGENTS or SESSION_AGENTS[session_key].model != req.model:
+            memory = MemoryStore(agent_name="AssistantAgent")
+            SESSION_AGENTS[session_key] = Agent(
+                model=req.model,
+                tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright],
+                memory=memory,
+                stateful=True,
+                max_turns=req.max_turns
+            )
+
+        agent = SESSION_AGENTS[session_key]
         result = agent.run(req.prompt)
-        return {"status": "completed", "result": result}
+        return {"status": "completed", "result": result, "session_id": session_key}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chat/clear")
+def api_clear_chat(session_id: Optional[str] = "default_session"):
+    """Clear chat history and reset agent memory for a session."""
+    session_key = session_id or "default_session"
+    if session_key in SESSION_AGENTS:
+        SESSION_AGENTS.pop(session_key, None)
+    return {"status": "success", "message": f"Cleared session agent history for '{session_key}'."}
 
 @app.get("/api/reflections")
 def api_get_reflections(limit: int = 10):

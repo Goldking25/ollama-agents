@@ -857,7 +857,12 @@
             sendMessage();
         }
 
-        function clearChat() {
+        async function clearChat() {
+            try {
+                await fetch(`${API_BASE}/api/chat/clear?session_id=default_session`, { method: "POST" });
+            } catch (err) {
+                console.warn("Failed to reset backend session history:", err);
+            }
             document.getElementById("chatMessages").innerHTML = `
                 <div class="message-row agent">
                     <div class="avatar agent">🤖</div>
@@ -968,7 +973,7 @@
                 const res = await fetch(`${API_BASE}/api/task/run`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ prompt, model, max_turns: 25 })
+                    body: JSON.stringify({ prompt, model, max_turns: 25, session_id: "default_session" })
                 });
                 const data = await res.json();
                 
