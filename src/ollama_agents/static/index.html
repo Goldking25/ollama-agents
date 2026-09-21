@@ -392,6 +392,12 @@
                             <option value="llama3.1:latest">llama3.1:latest</option>
                             <option value="huihui_ai/qwen2.5-abliterate:7b-instruct">qwen2.5:7b</option>
                         </select>
+                        <select id="chatMaxTurnsSelect" style="background: rgba(9, 13, 22, 0.7); border: 1px solid var(--panel-border); color: var(--text-main); padding: 0.3rem 0.6rem; border-radius: 8px; font-size: 0.8rem;" title="Reasoning turn limit">
+                            <option value="25">25 turns</option>
+                            <option value="50" selected>50 turns</option>
+                            <option value="75">75 turns</option>
+                            <option value="100">100 turns</option>
+                        </select>
                         <button onclick="clearChat()" class="chip" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">🗑️ Clear Chat</button>
                     </div>
                 </div>
@@ -1002,11 +1008,14 @@
             container.appendChild(tempRow);
             container.scrollTop = container.scrollHeight;
 
+            const maxTurnsEl = document.getElementById("chatMaxTurnsSelect");
+            const max_turns = maxTurnsEl ? parseInt(maxTurnsEl.value, 10) : 50;
+
             try {
                 const res = await fetch(`${API_BASE}/api/task/run`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ prompt, model, max_turns: 25, session_id: "default_session" })
+                    body: JSON.stringify({ prompt, model, max_turns, session_id: "default_session" })
                 });
                 const data = await res.json();
                 

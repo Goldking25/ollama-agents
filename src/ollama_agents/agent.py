@@ -88,7 +88,7 @@ class Agent:
         num_ctx: int = 8192,
         host: Optional[str] = None,
         memory: Optional[MemoryStore] = None,
-        max_turns: int = 25,
+        max_turns: int = 50,
         stateful: bool = False,
         confirm_actions: Optional[List[str]] = None,
         critic: Optional["Critic"] = None,  # type: ignore[name-defined]  # noqa: F821

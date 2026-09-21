@@ -307,7 +307,7 @@ def api_run_goal_task(goal_id: str, background_tasks: BackgroundTasks, auto_cont
                     host=host_url,
                     tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk],
                     memory=memory,
-                    max_turns=25
+                    max_turns=50
                 )
                 
                 # Execute current session sub-task
@@ -372,7 +372,7 @@ def api_kill_all_executions():
 class SingleTaskRequest(BaseModel):
     prompt: str
     model: str = "deepseek-r1:8b"
-    max_turns: int = 25
+    max_turns: int = 50
     session_id: Optional[str] = "default_session"
 
 # Global session agents registry for stateful chat history
@@ -402,8 +402,9 @@ def api_run_single_task(req: SingleTaskRequest):
             )
 
         agent = SESSION_AGENTS[session_key]
+        agent.max_turns = req.max_turns
         try:
-            result = agent.run(req.prompt)
+            result = agent.run(req.prompt, max_turns=req.max_turns)
         except MaxTurnsExceeded as mte:
             last_out = getattr(mte, 'last_output', '') or ''
             result = (
