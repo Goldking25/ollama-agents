@@ -296,9 +296,14 @@ def api_run_goal_task(goal_id: str, background_tasks: BackgroundTasks, auto_cont
                 if model_name == "AutonomousAgent" or not model_name:
                     model_name = "deepseek-r1:8b"
 
+                from ollama_agents.cluster import cluster_manager
+                best_node = cluster_manager.select_best_node_for_model(model_name)
+                host_url = best_node.host_url if best_node else None
+
                 memory = MemoryStore(agent_name="AssistantAgent")
                 agent = Agent(
                     model=model_name,
+                    host=host_url,
                     tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright],
                     memory=memory,
                     max_turns=25
@@ -377,14 +382,18 @@ def api_run_single_task(req: SingleTaskRequest):
     """Run a single task or conversation message with stateful history persistence."""
     try:
         from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright
+        from ollama_agents.cluster import cluster_manager
 
         session_key = req.session_id or "default_session"
+        best_node = cluster_manager.select_best_node_for_model(req.model)
+        host_url = best_node.host_url if best_node else None
 
         # Reuse existing stateful Agent or create a new session agent
         if session_key not in SESSION_AGENTS or SESSION_AGENTS[session_key].model != req.model:
             memory = MemoryStore(agent_name="AssistantAgent")
             SESSION_AGENTS[session_key] = Agent(
                 model=req.model,
+                host=host_url,
                 tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright],
                 memory=memory,
                 stateful=True,

@@ -160,6 +160,24 @@ class Agent:
         if self.tools:
             parts.append(_REACT_INSTRUCTIONS)
 
+        # Inject Distributed Cluster Node Awareness
+        try:
+            from ollama_agents.cluster import cluster_manager
+            remote_nodes = [n for n in cluster_manager.nodes.values() if n.is_active and "localhost" not in n.host_url and "127.0.0.1" not in n.host_url]
+            if remote_nodes:
+                worker_lines = []
+                for wn in remote_nodes:
+                    models_str = ", ".join(wn.installed_models[:6]) or "None"
+                    worker_lines.append(f"- Worker Node '{wn.name}' ({wn.host_url}): Models available: [{models_str}]")
+                parts.append(
+                    "\n## Connected Distributed Cluster Worker Nodes\n"
+                    "You have active secondary worker laptops connected over the local network. "
+                    "You can offload sub-tasks to these workers anytime by using the `delegate_subagent` tool with their installed models:\n"
+                    + "\n".join(worker_lines) + "\n"
+                )
+        except Exception:
+            pass
+
         return "\n".join(parts)
 
     # ──────────────────────────────────────────────────────────────────

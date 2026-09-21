@@ -224,17 +224,23 @@ def delegate_subagent(role: str, task: str, model: str = "deepseek-r1:8b") -> st
         from ollama_agents.memory_manager import memory_manager
         from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, test_ui_playwright
 
+        from ollama_agents.cluster import cluster_manager
+        best_node = cluster_manager.select_best_node_for_model(model)
+        host_url = best_node.host_url if best_node else None
+        node_name = best_node.name if best_node else "Local"
+
         with memory_manager.acquire_execution_slot(timeout=45.0):
             sub_agent = Agent(
                 name=f"{role}SubAgent",
                 role=role,
                 instructions=f"You are a specialized sub-agent acting as a {role}. Execute the assigned sub-task thoroughly and concisely.",
                 model=model,
+                host=host_url,
                 tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, test_ui_playwright],
                 max_turns=15
             )
             result = sub_agent.run(task)
-            return f"[SubAgent '{role}' ({model}) Output]:\n{result}"
+            return f"[SubAgent '{role}' ({model}) on Node '{node_name}' ({host_url or 'localhost'})]:\n{result}"
     except RuntimeError as re:
         return f"[Memory / Concurrency Safety Guard]: {re}"
     except Exception as e:
