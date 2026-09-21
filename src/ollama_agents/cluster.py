@@ -27,16 +27,21 @@ class ClusterNode:
     name: str = "LocalNode"
     is_active: bool = False
     installed_models: List[str] = field(default_factory=list)
+    loaded_models: List[Dict[str, Any]] = field(default_factory=list)
+    vram_used_bytes: int = 0
+    total_size_bytes: int = 0
     latency_ms: float = 0.0
     active_jobs: int = 0
     discovered_via: str = "manual"  # 'manual' or 'mdns'
 
     def ping_and_discover(self) -> bool:
-        """Check node health and fetch installed Ollama models."""
-        url = f"{self.host_url.rstrip('/')}/api/tags"
+        """Check node health, fetch installed Ollama models, and query loaded model memory/VRAM."""
+        base = self.host_url.rstrip('/')
+        url_tags = f"{base}/api/tags"
+        url_ps = f"{base}/api/ps"
         start_time = time.time()
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "OllamaAgentsCluster/0.6.0"})
+            req = urllib.request.Request(url_tags, headers={"User-Agent": "OllamaAgentsCluster/0.6.0"})
             with urllib.request.urlopen(req, timeout=3.5) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
@@ -49,12 +54,44 @@ class ClusterNode:
                     self.installed_models = models
                     self.is_active = True
                     self.latency_ms = round((time.time() - start_time) * 1000.0, 1)
-                    logger.info("ClusterNode '%s' (%s) active: %d models found (%.1fms)",
-                                self.name, self.host_url, len(models), self.latency_ms)
-                    return True
+
+            # Query loaded model memory from /api/ps
+            try:
+                req_ps = urllib.request.Request(url_ps, headers={"User-Agent": "OllamaAgentsCluster/0.6.0"})
+                with urllib.request.urlopen(req_ps, timeout=2.5) as resp_ps:
+                    if resp_ps.status == 200:
+                        ps_data = json.loads(resp_ps.read().decode("utf-8"))
+                        active_models = ps_data.get("models", [])
+                        self.loaded_models = []
+                        total_vram = 0
+                        total_size = 0
+                        for am in active_models:
+                            m_name = am.get("name", am.get("model", "Unknown"))
+                            vram_b = am.get("size_vram", 0)
+                            size_b = am.get("size", 0)
+                            total_vram += vram_b
+                            total_size += size_b
+                            self.loaded_models.append({
+                                "name": m_name,
+                                "size_vram_gb": round(vram_b / (1024**3), 2),
+                                "size_gb": round(size_b / (1024**3), 2),
+                                "context_length": am.get("context_length", 0)
+                            })
+                        self.vram_used_bytes = total_vram
+                        self.total_size_bytes = total_size
+            except Exception as pe:
+                logger.debug("ClusterNode '%s' (/api/ps) query failed: %s", self.name, pe)
+
+            logger.info("ClusterNode '%s' (%s) active: %d models, VRAM: %.2f GB (%.1fms)",
+                        self.name, self.host_url, len(self.installed_models),
+                        round(self.vram_used_bytes / (1024**3), 2), self.latency_ms)
+            return True
         except Exception as e:
             self.is_active = False
             self.installed_models = []
+            self.loaded_models = []
+            self.vram_used_bytes = 0
+            self.total_size_bytes = 0
             logger.debug("ClusterNode '%s' (%s) unreachable: %s", self.name, self.host_url, e)
             return False
         return False
@@ -145,7 +182,12 @@ class DistributedClusterManager:
                 "latency_ms": n.latency_ms,
                 "models_count": len(n.installed_models),
                 "discovered_via": n.discovered_via,
-                "models": n.installed_models
+                "models": n.installed_models,
+                "loaded_models": n.loaded_models,
+                "vram_used_gb": round(n.vram_used_bytes / (1024**3), 2),
+                "vram_used_bytes": n.vram_used_bytes,
+                "total_size_gb": round(n.total_size_bytes / (1024**3), 2),
+                "active_jobs": n.active_jobs
             } for n in self.nodes.values()]
         }
 
