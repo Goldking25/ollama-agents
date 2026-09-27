@@ -47,6 +47,7 @@ class GoalTask:
     created: str = field(default_factory=_now)
     updated: str = field(default_factory=_now)
     session: int = 0
+    model_override: Optional[str] = None
 
     @property
     def is_done(self) -> bool:
@@ -324,6 +325,26 @@ class GoalRegistry:
         if goal:
             goal.final_summary = summary
             self._save(goal)
+
+    def reset_task(self, goal_id: str, task_id: str, model_override: Optional[str] = None) -> None:
+        """Reset a failed or completed task to pending, optionally overriding its model."""
+        goal = self.load(goal_id)
+        if not goal:
+            return
+        for task in goal.tasks:
+            if task.id == task_id:
+                task.status = "pending"
+                task.output = None
+                task.updated = _now()
+                if model_override:
+                    task.model_override = model_override
+                try:
+                    from ollama_agents.checkpoint import CheckpointManager
+                    CheckpointManager().delete(f"{goal_id}-{task.id}")
+                except Exception:
+                    pass
+                break
+        self._save(goal)
 
     def fail_task(self, goal_id: str, task_id: str, reason: str = "") -> None:
         """Mark a task as failed."""

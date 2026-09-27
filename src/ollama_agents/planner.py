@@ -22,8 +22,9 @@ Output ONLY the numbered list. Example format:
 2. Search the web for NVDA earnings news from the last 7 days.
 3. Summarise the price and news into a 3-bullet investor briefing.
 
-Do NOT include explanations, headers, or any text outside the numbered list.\
-"""
+Do NOT include explanations, headers, or any text outside the numbered list.
+FORMATTING RULE: Use strict plain-text numbering (e.g., '1. ', '2. '). Do NOT use markdown bolding (like **1.**), asterisks, or the word 'Step'.
+FILE ORGANIZATION RULE: If the goal involves creating an app, script, or project, the FIRST subtask MUST be to create a dedicated subfolder in ~/ollama_workspace/ for it, and subsequent steps must save all files inside that subfolder."""
 
 
 _REPLAN_SYSTEM = """\
@@ -35,7 +36,8 @@ Output ONLY the numbered list of remaining steps. Example:
 1. Try an alternative approach to write the file using a different path.
 2. Verify the file was written correctly by reading it back.
 
-Do NOT repeat already-completed steps. Do NOT include explanations outside the list."""
+Do NOT repeat already-completed steps. Do NOT include explanations outside the list.
+FORMATTING RULE: Use strict plain-text numbering (e.g., '1. ', '2. '). Do NOT use markdown bolding (like **1.**), asterisks, or the word 'Step'."""
 
 
 class Planner:
@@ -96,13 +98,21 @@ class Planner:
     @staticmethod
     def _parse_steps(text: str) -> List[str]:
         """Extract numbered list items from raw model output."""
+        import re as _re
+        # Strip <think> blocks if present
+        text = _re.sub(r'<think>.*?</think>', '', text, flags=_re.DOTALL)
+        
         steps = []
         for line in text.splitlines():
             stripped = line.strip()
-            # Match "1. Step text" or "1) Step text"
-            match = re.match(r"^\d+[.)]\s+(.+)", stripped)
+            # Match formats like:
+            # "1. text", "1) text", "**1.** text", "Step 1: text", "* 1. text"
+            match = _re.match(r"^(?:(?:\*|-)\s*)?(?:Step\s+)?\*?\*?\d+\*?\*?[.)]?\s*:?\s*(.+)", stripped, _re.IGNORECASE)
             if match:
-                steps.append(match.group(1).strip())
+                # Filter out lines that just say "Task 1" without description
+                step_text = match.group(1).strip()
+                if len(step_text) > 3:
+                    steps.append(step_text)
         return steps
 
     def replan(
@@ -204,13 +214,16 @@ class Planner:
             "Break the goal into a numbered list of 5-8 FOCUSED, GRANULAR sub-tasks. "
             "Each sub-task should be small and specific — a single concrete action "
             "an AI agent can complete in 5-15 tool calls. "
-            "Do NOT create vague macro-tasks like 'gather context' or 'verify output'. "
+            "Do NOT create vague macro-tasks like 'gather context' (make them specific instead). "
+            "The FINAL sub-task MUST be a concrete verification step to validate the overall goal is fully completed and ready for the user.\n"
             "Each sub-task must:\n"
             "  - Be a single, specific action (e.g. 'Search the web for X', 'Write file Y with Z content', 'Run command A')\n"
             "  - Produce a concrete, reusable output (data, file, summary)\n"
             "  - Be specific enough to execute without further clarification\n\n"
             f"Required Skills Guidance:\n{skills_block}\n\n"
             "Output ONLY the numbered list. No headers, no explanations.\n"
+            "FORMATTING RULE: Use strict plain-text numbering (e.g., '1. ', '2. '). "
+            "Do NOT use markdown bolding (like **1.**), asterisks, or the word 'Step'.\n"
         )
         prompt = f"Goal: {goal.strip()}"
         if session_context:
@@ -218,8 +231,9 @@ class Planner:
 
         logger.info("Hierarchical planner decomposing: %s (Skills: %s)", goal[:80], required_skills)
         try:
-            # Use short 8.0s timeout so goal registration returns quickly without freezing UI
-            short_client = ollama.Client(host=self.client._client.base_url if hasattr(self.client, '_client') else None, timeout=60.0)
+            # Use longer timeout so large models can load into memory without failing the planning step
+            base_url = str(self.client._client.base_url) if hasattr(self.client, '_client') else None
+            short_client = ollama.Client(host=base_url, timeout=600.0)
             response = short_client.chat(
                 model=self.model,
                 messages=[
@@ -245,6 +259,7 @@ class Planner:
                 f"Verify, execute, and compile final output report for: {goal}"
             ]
         except Exception as e:
+            logger.error("!!! Goal decomposition failed. EXACT EXCEPTION: %s !!!", repr(e))
             logger.warning("Goal decomposition failed (%s). Using actionable multi-task breakdown.", e)
             return [
                 f"Gather required context and analyze target files for: {goal}",

@@ -151,14 +151,57 @@ class MemorySafetyManager:
                 self.force_garbage_collection()
 
     def force_garbage_collection(self) -> Dict[str, Any]:
-        """Trigger explicit garbage collection to free unreferenced objects."""
+        """Trigger explicit garbage collection to free unreferenced objects, PyTorch CUDA cache, and Ollama/ComfyUI GPU VRAM."""
         collected = gc.collect()
+
+        # 1. Free PyTorch CUDA Cache if torch is available
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+        except Exception:
+            pass
+
+        # 2. Unload running models from Ollama GPU VRAM (set keep_alive: 0)
+        try:
+            import httpx
+            ps_resp = httpx.get("http://127.0.0.1:11434/api/ps", timeout=3.0)
+            if ps_resp.status_code == 200:
+                models = ps_resp.json().get("models", [])
+                for m in models:
+                    model_name = m.get("name") or m.get("model")
+                    if model_name:
+                        httpx.post("http://127.0.0.1:11434/api/generate", json={"model": model_name, "keep_alive": 0}, timeout=5.0)
+        except Exception as e:
+            logger.debug("Ollama VRAM unload check: %s", e)
+
+        # 3. Unload ComfyUI models from GPU VRAM if running
+        try:
+            import httpx
+            httpx.post("http://127.0.0.1:8000/free", json={"unload_models": True, "free_memory": True}, timeout=3.0)
+        except Exception:
+            pass
+
+        # 4. Unload SD Forge models from GPU VRAM if running
+        try:
+            import httpx
+            httpx.post("http://127.0.0.1:7860/sdapi/v1/unload-checkpoint", timeout=3.0)
+        except Exception:
+            pass
+
+        collected += gc.collect()
         stats = self.get_system_stats()
-        logger.info("Garbage collection completed. Objects collected: %d. Free RAM: %.2f GB", collected, stats["ram_available_gb"])
+        vram_free = stats["gpu"]["vram_free_gb"] if stats["gpu"]["gpu_available"] else 0.0
+        logger.info(
+            "Garbage collection completed. Objects collected: %d. Free RAM: %.2f GB, Free VRAM: %.2f GB",
+            collected, stats["ram_available_gb"], vram_free
+        )
         return {
             "collected_objects": collected,
             "free_ram_gb": stats["ram_available_gb"],
-            "vram_free_gb": stats["gpu"]["vram_free_gb"] if stats["gpu"]["gpu_available"] else 0.0
+            "vram_free_gb": vram_free,
+            "gpu_available": stats["gpu"]["gpu_available"]
         }
 
 # Module-level default singleton instance

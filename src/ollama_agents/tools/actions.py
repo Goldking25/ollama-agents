@@ -90,7 +90,7 @@ def read_url(url: str, max_chars: int = 8000) -> str:
         return f"Error fetching '{url}': {type(e).__name__}: {e}"
 
 
-def run_python(code: str, timeout: int = 30) -> str:
+def run_python(code: str = None, timeout: int = 30, input: str = None) -> str:
     """Execute Python code in a subprocess and return its output.
 
     The code runs with the same Python interpreter as the agent but in a
@@ -99,7 +99,13 @@ def run_python(code: str, timeout: int = 30) -> str:
     Args:
         code: Valid Python source code to execute.
         timeout: Maximum seconds to allow before killing the process (default 30).
+        input: Fallback argument for the Python source code (used if 'code' is not provided).
     """
+    if code is None and input is not None:
+        code = input
+    elif code is None and input is None:
+        return "Error: You must provide the Python source code using the 'code' argument."
+
     try:
         result = subprocess.run(
             [sys.executable, "-c", textwrap.dedent(code)],

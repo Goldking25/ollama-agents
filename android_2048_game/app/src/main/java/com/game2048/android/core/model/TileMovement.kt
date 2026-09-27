@@ -13,6 +13,4 @@ data class TileMovement(
     val to: Position,
     val tileId: Long,
     val value: Int
-) {
-    constructor(tileId: Long, from: Position, to: Position, value: Int) : this(from, to, tileId, value)
-}
+)

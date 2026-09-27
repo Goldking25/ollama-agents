@@ -272,7 +272,13 @@ def api_list_goals():
 def api_create_goal(req: CreateGoalRequest):
     """Decompose and save a new goal."""
     registry = GoalRegistry()
-    goal = registry.create_goal(req.prompt, model=req.model)
+    
+    # Sanitize model name so the planner doesn't crash on invalid model names
+    model_name = req.model
+    if not model_name or model_name == "AutonomousAgent":
+        model_name = "deepseek-r1:8b"
+        
+    goal = registry.create_goal(req.prompt, model=model_name)
     return {"status": "success", "goal": goal.__dict__, "tasks": [t.__dict__ for t in goal.tasks]}
 
 # Global active execution registry for kill switch
@@ -333,10 +339,19 @@ def api_run_goal_task(goal_id: str, background_tasks: BackgroundTasks, auto_cont
                 model_name = getattr(current_goal, 'model', None) or getattr(current_goal, 'agent_name', 'deepseek-r1:8b')
                 if model_name == "AutonomousAgent" or not model_name:
                     model_name = "deepseek-r1:8b"
+                    
+                if hasattr(curr_task, 'model_override') and curr_task.model_override:
+                    model_name = curr_task.model_override
 
                 from ollama_agents.cluster import cluster_manager
                 best_node = cluster_manager.select_best_node_for_model(model_name)
                 host_url = best_node.host_url if best_node else None
+
+                from ollama_agents.memory_manager import memory_manager
+                try:
+                    memory_manager.force_garbage_collection()
+                except Exception as gc_err:
+                    logger.debug("Pre-task GC cleanup: %s", gc_err)
 
                 memory = MemoryStore(agent_name="AssistantAgent")
                 agent = Agent(
@@ -344,7 +359,7 @@ def api_run_goal_task(goal_id: str, background_tasks: BackgroundTasks, auto_cont
                     host=host_url,
                     tools=[write_file, read_file, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk],
                     memory=memory,
-                    max_turns=50
+                    max_turns=120
                 )
                 
                 # Execute current session sub-task
@@ -368,6 +383,17 @@ def api_run_goal_task(goal_id: str, background_tasks: BackgroundTasks, auto_cont
 
     background_tasks.add_task(_execute)
     return {"status": "started", "message": f"Execution started for goal {goal_id} (Auto-continue: {auto_continue})"}
+
+@app.post("/api/goals/{goal_id}/tasks/{task_id}/retry")
+def api_retry_goal_task(goal_id: str, task_id: str, background_tasks: BackgroundTasks, auto_continue: bool = True, model_override: Optional[str] = None):
+    """Reset a task to pending and optionally resume execution."""
+    registry = GoalRegistry()
+    goal = registry.get_goal(goal_id)
+    if not goal:
+        raise HTTPException(status_code=404, detail="Goal not found")
+        
+    registry.reset_task(goal_id, task_id, model_override=model_override)
+    return api_run_goal_task(goal_id, background_tasks, auto_continue=auto_continue)
 
 @app.post("/api/goals/{goal_id}/kill")
 def api_kill_goal_execution(goal_id: str):
@@ -748,11 +774,40 @@ def api_delete_workspace_file(path: str):
         shutil.rmtree(target)
     return {"status": "success", "message": f"Deleted {path}"}
 
+class ApplyReflectionFixRequest(BaseModel):
+    key: str
+    content: str
+    model: Optional[str] = "deepseek-r1:8b"
+
 @app.get("/api/reflections")
 def api_get_reflections(limit: int = 10):
     """Get stored agent self-reflections."""
     mem = MemoryStore()
     return mem.get_reflections(limit=limit)
+
+@app.post("/api/reflections/apply-fix")
+def api_apply_reflection_fix(req: ApplyReflectionFixRequest, background_tasks: BackgroundTasks):
+    """Automatically convert an agent self-reflection lesson into a live autonomous code fix/optimization goal."""
+    registry = GoalRegistry()
+    prompt = (
+        f"Self-Improvement Auto-Fix based on Reflection [{req.key}]:\n\n"
+        f"Reflection Content:\n{req.content}\n\n"
+        "Your Task:\n"
+        "1. Inspect the codebase, tools, or configuration to locate where the issue described in this reflection occurred.\n"
+        "2. Implement the necessary code modifications, refactorings, or tool improvements to permanently resolve this issue.\n"
+        "3. Test and verify your changes to confirm the issue is fixed."
+    )
+    model_name = req.model or "deepseek-r1:8b"
+    if model_name == "AutonomousAgent":
+        model_name = "deepseek-r1:8b"
+        
+    goal = registry.create_goal(prompt, model=model_name)
+    api_run_goal_task(goal.id, background_tasks, auto_continue=True)
+    return {
+        "status": "success",
+        "message": f"Autonomous auto-fix initiated for reflection '{req.key}'!",
+        "goal_id": goal.id
+    }
 
 # ── Media Studio Endpoints (SD WebUI Forge & ComfyUI) ─────────────────────────
 @app.get("/api/media/status")
@@ -795,6 +850,26 @@ def api_media_status(
         "forge": forge_res,
         "comfy": comfy_res
     }
+
+@app.delete("/api/media/{filename}")
+def api_media_delete(filename: str, media_type: str = "all"):
+    """Delete a generated image or video."""
+    workspace = Path.home() / "ollama_workspace"
+    img_path = workspace / "images" / filename
+    vid_path = workspace / "videos" / filename
+    
+    deleted = False
+    if img_path.exists() and img_path.is_file():
+        img_path.unlink()
+        deleted = True
+    elif vid_path.exists() and vid_path.is_file():
+        vid_path.unlink()
+        deleted = True
+        
+    if deleted:
+        return {"status": "success", "message": f"Deleted {filename}"}
+    else:
+        raise HTTPException(status_code=404, detail="File not found")
 
 @app.get("/api/media/gallery")
 def api_media_gallery(media_type: str = "all"):
@@ -950,7 +1025,9 @@ def api_media_generate_video(payload: Dict[str, Any]):
         height=int(payload.get("height", 512)),
         frames=int(payload.get("frames", 16)),
         fps=int(payload.get("fps", 8)),
-        api_url=api_url
+        api_url=api_url,
+        init_image=payload.get("init_image", None),
+        denoise=float(payload.get("denoise", 0.75))
     )
     if "Error" in res or not res.startswith("[ComfyUI Video Generated Successfully]"):
         return {"status": "error", "message": res, "file_path": None, "filename": None, "url": None}
@@ -987,4 +1064,5 @@ def index():
         with open(html_file, "r", encoding="utf-8") as f:
             return f.read()
     return "<h1>Ollama Agents Web Dashboard - Front end loading...</h1>"
+
 

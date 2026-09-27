@@ -42,6 +42,13 @@ venv.bak/
 .ollama_agents/
 ollama_workspace/
 reports/
+scratch/
+comfy_history.json
+temp*
+test_*.py
+test.py
+test_img.png
+comfyui.py
 
 # IDE / Editor
 .vscode/

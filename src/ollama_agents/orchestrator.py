@@ -175,16 +175,82 @@ class Orchestrator:
             logger.info("Orchestrator: Routing Task %d to worker model '%s' (Skill: '%s', category: %s)", 
                         idx, best_model, task_skill.name, task_type)
 
-            worker = Agent(
-                name=f"Worker-{task_type.capitalize()}",
-                role=f"Specialized {task_type.capitalize()} Analyst",
-                instructions=f"Skill Blueprint [{task_skill.name} v{task_skill.version}]: {task_skill.instructions}",
-                model=best_model,
-                tools=[web_search, get_realtime_market_quote, run_python, write_file, read_file, synthesize_new_tool],
-                max_turns=25,
-            )
+            task_context = task_desc
+            total_iterations = 0
+            MAX_TOTAL_ITERATIONS = 120
+            
+            while True:
+                # Calculate how many turns this specific worker gets (cap at 50 per reassessment, or whatever is left of 120)
+                turns_this_run = min(50, MAX_TOTAL_ITERATIONS - total_iterations)
+                
+                # If we've hit or exceeded the absolute limit of 120, fail the subtask.
+                if turns_this_run <= 0:
+                    logger.error("Orchestrator: Task %d hit the absolute maximum limit of %d iterations. Failing subtask.", idx, MAX_TOTAL_ITERATIONS)
+                    raw_out = "Error: Subtask failed after reaching the absolute limit of 120 iterations."
+                    break
 
-            raw_out = worker.run(task_desc)
+                worker = Agent(
+                    name=f"Worker-{task_type.capitalize()}{'-Reassigned' if total_iterations > 0 else ''}",
+                    role=f"Specialized {task_type.capitalize()} Analyst",
+                    instructions=f"Skill Blueprint [{task_skill.name} v{task_skill.version}]: {task_skill.instructions}",
+                    model=best_model,
+                    tools=[web_search, get_realtime_market_quote, run_python, write_file, read_file, synthesize_new_tool],
+                    max_turns=turns_this_run,
+                )
+
+                try:
+                    raw_out = worker.run(task_context)
+                    break
+                except MaxTurnsExceeded as e:
+                    total_iterations += turns_this_run
+                    
+                    if total_iterations >= MAX_TOTAL_ITERATIONS:
+                        logger.error("Orchestrator: Task %d failed after reaching the absolute limit of %d iterations.", idx, MAX_TOTAL_ITERATIONS)
+                        raw_out = e.last_output if e.last_output else "Error: Subtask failed to complete within 120 iterations."
+                        break
+                        
+                    # Pass the information found so far to the next session
+                    info_so_far = e.last_output if e.last_output else "(No final output produced)"
+                    
+                    # Ask the reviewer model if the current model is making progress or is stuck
+                    progress_eval_prompt = (
+                        f"You are evaluating an AI agent's partial progress on a task.\n"
+                        f"Task: {task_desc}\n\n"
+                        f"Agent's last output/thoughts before running out of turns:\n"
+                        f"{info_so_far[-3000:]}\n\n"
+                        f"Question: Is the agent making meaningful progress and just needs more time? "
+                        f"Or is it stuck in a loop, failing repeatedly, or confused?\n"
+                        f"Reply with ONLY the word 'YES' if it is making progress and should KEEP the same model.\n"
+                        f"Reply with ONLY the word 'NO' if it is stuck and the model should be REASSIGNED."
+                    )
+                    
+                    is_progressing = False
+                    try:
+                        import ollama
+                        progress_resp = ollama.chat(
+                            model=self.reviewer_model,
+                            messages=[{"role": "user", "content": progress_eval_prompt}]
+                        )
+                        content = progress_resp.get("message", {}).get("content", "").strip().upper()
+                        is_progressing = "YES" in content
+                    except Exception as eval_err:
+                        logger.warning("Orchestrator: Failed to evaluate progress: %s", eval_err)
+                        
+                    if is_progressing:
+                        logger.info("Orchestrator: Task %d hit %d iterations but is making progress! Keeping model '%s'...", idx, total_iterations, best_model)
+                    else:
+                        logger.info("Orchestrator: Task %d hit %d iterations and seems stuck. Reassessing and reassigning...", idx, total_iterations)
+                        # Reassign to the next suitable model
+                        best_model = select_best_local_model(task_type=task_type, preferred=self.default_model)
+                        logger.info("Orchestrator: Reassigned Task %d to '%s'", idx, best_model)
+                    
+                    task_context = (
+                        f"{task_desc}\n\n"
+                        f"[REASSIGNMENT CONTEXT]\n"
+                        f"Previous agent ran out of turns. Please continue where they left off.\n"
+                        f"Information found so far:\n{info_so_far[:2000]}\n"
+                        f"Resume the task and bring it to completion. You have {MAX_TOTAL_ITERATIONS - total_iterations} turns remaining."
+                    )
 
             # Reviewer Quality Gate Pass
             logger.info("Orchestrator: Reviewing Task %d output with Reviewer Model '%s'...", idx, self.reviewer_model)
@@ -285,4 +351,60 @@ class Orchestrator:
             f"---\n\n"
             f"## Parallel Task Execution Details\n"
             f"{combined_summary}"
+        )
+
+    def rerun_subtask(self, task_desc: str, model_override: Optional[str] = None, previous_context: str = "") -> str:
+        """Rerun a specific subtask from the UI, optionally forcing a specific model.
+        
+        Args:
+            task_desc: The description of the subtask to rerun.
+            model_override: If provided, bypasses model routing and uses this exact model.
+            previous_context: Optional context or previous failed output to inform the agent.
+            
+        Returns:
+            The final reviewed output of the subtask.
+        """
+        from .agent import Agent
+        from .model_selector import select_best_local_model
+        from .tools import web_search, get_realtime_market_quote, run_python, write_file, read_file, synthesize_new_tool
+        from .skills import SkillRegistry
+
+        task_type = self.classify_task_type(task_desc)
+        best_model = model_override if model_override else select_best_local_model(task_type=task_type, preferred=self.default_model)
+        
+        skill_reg = SkillRegistry()
+        task_skill = skill_reg.ensure_skill_for_goal(task_desc, model=best_model)
+        
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("Orchestrator: Rerunning subtask with model '%s' (Skill: '%s', category: %s)", 
+                    best_model, task_skill.name, task_type)
+
+        worker = Agent(
+            name=f"Worker-{task_type.capitalize()}-Rerun",
+            role=f"Specialized {task_type.capitalize()} Analyst",
+            instructions=f"Skill Blueprint [{task_skill.name} v{task_skill.version}]: {task_skill.instructions}",
+            model=best_model,
+            tools=[web_search, get_realtime_market_quote, run_python, write_file, read_file, synthesize_new_tool],
+            max_turns=50,
+        )
+        
+        # Inject previous context if provided by the UI
+        full_task_desc = task_desc
+        if previous_context:
+            full_task_desc += f"\n\n[PREVIOUS RUN CONTEXT]\nThe previous run produced the following output or hit an issue:\n{previous_context}\nPlease improve upon this or take a different approach."
+            
+        raw_out = worker.run(full_task_desc)
+        
+        # Run it through the Reviewer Quality Gate
+        logger.info("Orchestrator: Reviewing rerun output with Reviewer Model '%s'...", self.reviewer_model)
+        approved, reviewed_out, score = self.review_output(task=task_desc, output=raw_out)
+        
+        status_label = f"Approved (Score: {score:.2f})" if approved else f"Revised by Reviewer (Score: {score:.2f})"
+        
+        return (
+            f"### Rerun Result: {task_desc}\n"
+            f"**Worker Model**: `{best_model}` (`{task_type}`)\n"
+            f"**Reviewer Quality Gate**: `{self.reviewer_model}` - **{status_label}**\n\n"
+            f"{reviewed_out}"
         )

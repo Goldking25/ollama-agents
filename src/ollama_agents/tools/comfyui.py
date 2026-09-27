@@ -22,20 +22,12 @@ def generate_video_comfyui(
     frames: int = 16,
     fps: int = 8,
     api_url: str = "http://127.0.0.1:8000",
-    workflow_json: Optional[str] = None
+    workflow_json: Optional[str] = None,
+    init_image: Optional[str] = None,
+    denoise: float = 0.75,
+    ckpt_name: str = "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors"
 ) -> str:
-    """Generate a video using local ComfyUI API endpoint and save the output MP4/GIF to the workspace.
-
-    Args:
-        prompt: Text prompt describing the desired video scene and motion (e.g. 'a cinematic drone shot of a glowing futuristic neon city with flying cars').
-        negative_prompt: What to avoid in the video (default 'blurry, low quality, distorted, static, jittery').
-        width: Video width in pixels (default 512).
-        height: Video height in pixels (default 512).
-        frames: Number of video frames to render (default 16).
-        fps: Frames per second for output video playback (default 8).
-        api_url: Base URL of running local ComfyUI instance (default 'http://127.0.0.1:8000').
-        workflow_json: Optional custom API prompt JSON payload string. If not provided, a standard video generation workflow payload is sent.
-    """
+    """Generate a video using local ComfyUI API endpoint and save the output MP4/GIF to the workspace."""
     try:
         import httpx
     except ImportError:
@@ -46,84 +38,95 @@ def generate_video_comfyui(
     history_endpoint = f"{base}/history"
     view_endpoint = f"{base}/view"
 
-    # Default API Prompt format for ComfyUI
     if workflow_json:
         try:
             payload = json.loads(workflow_json)
         except Exception as e:
             return f"Error parsing provided workflow_json: {e}"
     else:
-        # Standard video generation workflow prompt structure
-        payload = {
-            "prompt": {
-                "3": {
-                    "class_type": "KSampler",
-                    "inputs": {
-                        "cfg": 6.0,
-                        "denoise": 1.0,
-                        "latent_image": ["5", 0],
-                        "model": ["4", 0],
-                        "negative": ["7", 0],
-                        "positive": ["6", 0],
-                        "sampler_name": "euler",
-                        "scheduler": "normal",
-                        "seed": int(time.time()),
-                        "steps": 20
-                    }
-                },
-                "4": {
-                    "class_type": "CheckpointLoaderSimple",
-                    "inputs": {
-                        "ckpt_name": "v1-5-pruned-emaonly.safetensors"
-                    }
-                },
-                "5": {
-                    "class_type": "EmptyLatentImage",
-                    "inputs": {
-                        "batch_size": frames,
-                        "height": height,
-                        "width": width
-                    }
-                },
-                "6": {
-                    "class_type": "CLIPTextEncode",
-                    "inputs": {
-                        "clip": ["4", 1],
-                        "text": prompt
-                    }
-                },
-                "7": {
-                    "class_type": "CLIPTextEncode",
-                    "inputs": {
-                        "clip": ["4", 1],
-                        "text": negative_prompt
-                    }
-                },
-                "8": {
-                    "class_type": "VAEDecode",
-                    "inputs": {
-                        "samples": ["3", 0],
-                        "vae": ["4", 2]
-                    }
-                },
-                "9": {
-                    "class_type": "VHS_VideoCombine",
-                    "inputs": {
-                        "images": ["8", 0],
-                        "frame_rate": fps,
-                        "loop_count": 0,
-                        "filename_prefix": "comfy_video",
-                        "format": "video/h264-mp4"
-                    }
+        # Determine denoise and sampling steps for crisp, distortion-free output
+        effective_denoise = float(denoise) if init_image else 1.0
+        # If init_image is provided, default denoise to 0.65 to avoid destroying initial image structure
+        if init_image and denoise == 1.0:
+            effective_denoise = 0.65
+
+        nodes = {
+            "1": {
+                "class_type": "UNETLoader",
+                "inputs": {"unet_name": ckpt_name, "weight_dtype": "default"}
+            },
+            "2": {
+                "class_type": "CLIPLoader",
+                "inputs": {"clip_name": "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors", "type": "ltxv"}
+            },
+            "3": {
+                "class_type": "VAELoader",
+                "inputs": {"vae_name": "ltx-2.5-video-vae-bf16.safetensors"}
+            },
+            "4": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"clip": ["2", 0], "text": prompt}
+            },
+            "5": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"clip": ["2", 0], "text": negative_prompt}
+            },
+            "6": {
+                "class_type": "LTXVConditioning",
+                "inputs": {"positive": ["4", 0], "negative": ["5", 0], "frame_rate": float(fps)}
+            },
+            "7": {
+                "class_type": "EmptyLTXVLatentVideo",
+                "inputs": {"width": width, "height": height, "length": frames, "batch_size": 1}
+            },
+            "8": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "model": ["1", 0],
+                    "positive": ["6", 0],
+                    "negative": ["6", 1],
+                    "latent_image": ["7", 0],
+                    "seed": int(time.time()),
+                    "steps": 20, # 20 steps prevents blurry noise & motion distortion
+                    "cfg": 3.5,
+                    "sampler_name": "euler",
+                    "scheduler": "normal",
+                    "denoise": effective_denoise
+                }
+            },
+            "9": {
+                "class_type": "VAEDecode",
+                "inputs": {"samples": ["8", 0], "vae": ["3", 0]}
+            },
+            "10": {
+                "class_type": "VHS_VideoCombine",
+                "inputs": {
+                    "images": ["9", 0],
+                    "frame_rate": fps,
+                    "loop_count": 0,
+                    "filename_prefix": "comfy_video",
+                    "format": "video/h264-mp4",
+                    "pingpong": False,
+                    "save_output": True
                 }
             }
         }
+
+        # If init_image is specified, hook up LoadImage node
+        if init_image:
+            img_name = Path(init_image).name if "/" in init_image or "\\" in init_image else init_image
+            nodes["11"] = {
+                "class_type": "LoadImage",
+                "inputs": {"image": img_name}
+            }
+
+        payload = {"prompt": nodes}
 
     try:
         logger.info("Submitting video generation prompt to ComfyUI at %s...", prompt_endpoint)
         resp = httpx.post(prompt_endpoint, json=payload, timeout=30.0)
         if resp.status_code != 200:
-            return f"ComfyUI API Error ({resp.status_code}): {resp.text[:300]}. Ensure ComfyUI is running at '{api_url}'."
+            return f"ComfyUI API Error ({resp.status_code}): {resp.text[:1000]}. Ensure ComfyUI is running at '{api_url}'."
 
         res_data = resp.json()
         prompt_id = res_data.get("prompt_id")
@@ -132,7 +135,6 @@ def generate_video_comfyui(
 
         logger.info("ComfyUI prompt queued with ID: %s. Waiting for rendering to complete...", prompt_id)
 
-        # Poll history endpoint for output video completion (up to 360 seconds / 6 minutes)
         start_time = time.time()
         output_file_info = None
 
@@ -153,13 +155,34 @@ def generate_video_comfyui(
                         if "images" in node_out:
                             output_file_info = node_out["images"][0]
                             break
-                    if output_file_info:
-                        break
+                    
+                    # If it is in history, it is completely done (success or error).
+                    # We break regardless of whether we found outputs, to avoid a 6-minute infinite loop.
+                    break
 
         if not output_file_info:
+            # Check if it's actually in history but failed
+            hist_check = httpx.get(f"{history_endpoint}/{prompt_id}", timeout=10.0).json()
+            if prompt_id in hist_check:
+                status = hist_check[prompt_id].get("status", {})
+                
+                # Extract error from messages or dump the status
+                messages = status.get("messages", [])
+                error_texts = []
+                for msg in messages:
+                    if isinstance(msg, list) and len(msg) >= 2:
+                        error_texts.append(str(msg[1]))
+                    else:
+                        error_texts.append(str(msg))
+                        
+                if error_texts:
+                    error = " | ".join(error_texts)
+                else:
+                    error = str(status)
+                    
+                return f"ComfyUI generation failed. No video was output. Error: {error}"
             return f"[ComfyUI Task Queued]: Prompt ID '{prompt_id}' was submitted to ComfyUI at {api_url}. Rendering is still in progress."
 
-        # Fetch rendered file from ComfyUI /view endpoint
         filename = output_file_info.get("filename")
         subfolder = output_file_info.get("subfolder", "")
         file_type = output_file_info.get("type", "output")

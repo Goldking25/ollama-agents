@@ -43,6 +43,7 @@ Final Answer: <your complete response>
 - You are equipped with autonomous capabilities: write_file, read_file, run_terminal, run_python, web_search, build_android_apk, delegate_subagent, and more. Use them proactively.
 - If a tool fails or throws an error, do NOT stop: analyze the error, fix the parameters, rewrite the broken code, and re-execute until it succeeds.
 - If an approach hits a roadblock, pivot immediately to an alternative method.
+- FILE ORGANIZATION: ALWAYS create a dedicated, neatly named subfolder in ~/ollama_workspace/ for any new project, app, or script. NEVER generate loose code files or generic folders (like `src/` or `res/`) directly in the workspace root.
 - Always start with a Thought before calling a tool.
 - NEVER stop after writing a Thought. A Thought MUST always be immediately accompanied by its corresponding Tool Call.
 - DO NOT simulate or hallucinate tool outputs. Only output the tool call itself and wait for the system to return the result. Do not output `<|tool_outputs_begin|>` or similar tags.
@@ -55,18 +56,20 @@ Final Answer: <your complete response>
 # Models that cannot handle native Ollama tool calling (abliterated, fine-tuned, etc.)
 # These models will receive tool descriptions as plain text in the system prompt instead.
 _TEXT_TOOL_MODELS = {
-    "huihui_ai/qwen3.5-abliterated",
     "mannix/llama3.1-8b-abliterated",
 }
 
 def _is_text_tool_model(model_name: str) -> bool:
     """Check if a model needs text-based tool injection instead of native tool calling."""
     name_lower = model_name.lower()
+    # Qwen models (including qwen3.5-abliterated) support native Ollama tool calling
+    if "qwen" in name_lower:
+        return False
     # Check exact match or prefix match (for tag variants like :9b, :latest)
     for blocked in _TEXT_TOOL_MODELS:
         if name_lower.startswith(blocked.lower()):
             return True
-    # Auto-detect abliterated models
+    # Auto-detect other abliterated/uncensored models
     if "abliterated" in name_lower or "uncensored" in name_lower:
         return True
     return False
@@ -168,7 +171,7 @@ class Agent:
         self.max_turns = max_turns
         self.stateful = stateful
         self.memory = memory
-        self.client = ollama.Client(host=host, timeout=30.0)
+        self.client = ollama.Client(host=host, timeout=600.0)
         self.confirm_actions: Set[str] = set(confirm_actions or [])
         self.critic = critic
         self.max_critique_rounds = max_critique_rounds
@@ -357,7 +360,15 @@ class Agent:
                     try:
                         fn_args = json.loads(raw_args)
                     except Exception:
-                        fn_args = {"input": raw_args}
+                        # Try to extract just the JSON object if model hallucinated trailing text
+                        json_match = re.search(r'(\{[\s\S]*\})', raw_args)
+                        if json_match:
+                            try:
+                                fn_args = json.loads(json_match.group(1))
+                            except Exception:
+                                fn_args = {"input": raw_args}
+                        else:
+                            fn_args = {"input": raw_args}
                     if not isinstance(fn_args, dict):
                         fn_args = {"input": fn_args}
                     calls.append({"function": {"name": fn_name, "arguments": fn_args}})
@@ -541,6 +552,16 @@ class Agent:
                         ),
                     })
 
+        # Safeguard: Ensure history ALWAYS contains at least one valid non-empty user message
+        # to prevent model backend errors: "no user query found in messages (status code: 500)"
+        has_user_query = any(
+            m.get("role") == "user" and bool(str(m.get("content", "")).strip())
+            for m in self.history
+        )
+        if not has_user_query:
+            logger.warning("[%s] No valid user message in history. Injecting task prompt.", self.name)
+            self.history.append({"role": "user", "content": user_prompt or "Execute the requested task."})
+
         # For text-tool models (abliterated/uncensored), tools are described in the system
         # prompt as text. Don't pass native tool schemas — use text parsing instead.
         use_native_tools = self.tools and not _is_text_tool_model(self.model)
@@ -584,14 +605,31 @@ class Agent:
                     "does not support tools" in err_str
                     or "xml syntax error" in err_str
                     or "unexpected eof" in err_str
+                    or "no user query found" in err_str
                     or err.status_code in (400, 500)
                 ):
-                    # Model/Ollama failed parsing native tools via XML - fall back to text prompt tools
-                    logger.warning("[%s] Native tool error (%s). Retrying chat without native tool formatting...", self.name, err)
+                    # Model/Ollama failed parsing native tools via XML/schema - fall back to sanitized text prompt tools
+                    logger.warning("[%s] Native tool error (%s). Retrying chat with sanitized history...", self.name, err)
+                    
+                    # Convert role 'tool' to 'user' so non-native model endpoints don't reject the payload
+                    fallback_history = []
+                    for m in self.history:
+                        fm = dict(m)
+                        if fm.get("role") == "tool":
+                            fm["role"] = "user"
+                            fm["content"] = f"[Tool Result]: {fm.get('content', '')}"
+                        elif fm.get("role") == "assistant" and not str(fm.get("content", "")).strip():
+                            fm["content"] = f"Thought: {fm.get('thinking', 'analyzing...')}"
+                        fallback_history.append(fm)
+                        
+                    # Ensure at least one valid user query exists
+                    if not any(m.get("role") == "user" and bool(str(m.get("content", "")).strip()) for m in fallback_history):
+                        fallback_history.append({"role": "user", "content": user_prompt or "Proceed with task."})
+                        
                     try:
                         response = self.client.chat(
                             model=self.model,
-                            messages=self.history,
+                            messages=fallback_history,
                             options=options,
                         )
                     except Exception as fallback_err:
@@ -647,12 +685,15 @@ class Agent:
             # response so the real tool execution result is used instead.
             import re as _re
             if any(marker in content for marker in [
-                "\uuff5c\uff09tool\u2581outputs\u2581begin\uff5c\uff09",  # DeepSeek special tokens
-                "<|tool\u2581outputs\u2581begin|>",
+                "tool\u2581outputs\u2581begin",
                 "tool_outputs_begin",
             ]):
                 content = _re.sub(
-                    r'[\s\S]*?tool\u2581outputs\u2581begin[\s\S]*?tool\u2581outputs\u2581end[\s\S]*',
+                    r'<[^>]*?tool\u2581outputs\u2581begin[^>]*?>[\s\S]*?<[^>]*?tool\u2581outputs\u2581end[^>]*?>',
+                    '', content
+                )
+                content = _re.sub(
+                    r'<[^>]*?tool_outputs_begin[^>]*?>[\s\S]*?<[^>]*?tool_outputs_end[^>]*?>',
                     '', content
                 ).strip()
                 # Also strip from history so the model doesn't see its own fake output
@@ -920,8 +961,8 @@ class Agent:
             return
 
         summary_msg = {
-            "role": "assistant",
-            "content": f"[Compressed summary of earlier turns]: {summary.strip()}",
+            "role": "user",
+            "content": f"[Compressed summary of earlier turns]: {summary.strip()}\n\nPlease continue working on the task based on this summary.",
         }
         self.history = system_msgs + [summary_msg] + to_keep
         logger.info("[%s] History compressed: %d -> %d messages.", self.name,
