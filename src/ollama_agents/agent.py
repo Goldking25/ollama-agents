@@ -45,6 +45,7 @@ Final Answer: <your complete response>
 - If an approach hits a roadblock, pivot immediately to an alternative method.
 - Always start with a Thought before calling a tool.
 - NEVER stop after writing a Thought. A Thought MUST always be immediately accompanied by its corresponding Tool Call.
+- DO NOT simulate or hallucinate tool outputs. Only output the tool call itself and wait for the system to return the result. Do not output `<|tool_outputs_begin|>` or similar tags.
 - DO NOT GUESS FILENAMES. When asked about existing files, filenames, or locations, use the `list_workspace_files` tool to see all files in ~/ollama_workspace/. If a file does not exist, do NOT repeatedly guess random filenames.
 - Emit "Final Answer:" ONLY when the entire user task is completely fulfilled, tested, and delivered.
 - When the plan is updated, follow the new steps.
@@ -640,6 +641,25 @@ class Agent:
             tool_calls_list: List[Any] = msg.get("tool_calls") or []
             last_content = content
 
+            # ── Strip hallucinated tool outputs from model text ────────
+            # Some models (e.g. DeepSeek) hallucinate both the tool call AND
+            # a fake tool response in the same text output. Strip the fake
+            # response so the real tool execution result is used instead.
+            import re as _re
+            if any(marker in content for marker in [
+                "\uuff5c\uff09tool\u2581outputs\u2581begin\uff5c\uff09",  # DeepSeek special tokens
+                "<|tool\u2581outputs\u2581begin|>",
+                "tool_outputs_begin",
+            ]):
+                content = _re.sub(
+                    r'[\s\S]*?tool\u2581outputs\u2581begin[\s\S]*?tool\u2581outputs\u2581end[\s\S]*',
+                    '', content
+                ).strip()
+                # Also strip from history so the model doesn't see its own fake output
+                if self.history and self.history[-1].get("content"):
+                    self.history[-1]["content"] = content
+                logger.warning("[%s] Stripped hallucinated tool output from model response.", self.name)
+
             # Fallback: if model (e.g. llama3.1) returned JSON text tool calls instead of native tool_calls
             if not tool_calls_list and content:
                 text_calls = self._parse_text_tool_calls(content)
@@ -770,10 +790,21 @@ class Agent:
                 recent_calls.append(call_sig)
                 self._recent_tool_signatures = recent_calls[-10:]
 
-                if recent_calls.count(call_sig) >= 3:
+                repeat_count = recent_calls.count(call_sig)
+                if repeat_count >= 3:
+                    # Hard stop: model is stuck in an infinite loop
+                    logger.warning("[%s] Tool '%s' called 3+ times identically. Force-stopping agent.", self.name, fn_name)
+                    fail_msg = (
+                        f"Agent stopped: repeated identical tool call '{fn_name}' detected 3 times. "
+                        "The tool may not be producing the expected result. Check tool output and try a different approach."
+                    )
+                    emit("error", fail_msg)
+                    return fail_msg
+                elif repeat_count >= 2:
                     output = (
                         f"[Tool Failure] Repeated identical tool call detected ({fn_name}). "
-                        "You are repeating failed actions. Stop guessing and use list_workspace_files or provide Final Answer."
+                        "You already called this tool with the same arguments. STOP repeating. "
+                        "Verify the result using list_workspace_files or read_file, or provide 'Final Answer:' with your result."
                     )
                 else:
                     output = self._execute_tool(fn_name, fn_args)
