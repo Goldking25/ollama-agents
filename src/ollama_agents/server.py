@@ -187,6 +187,17 @@ def api_trigger_gc():
     from ollama_agents.memory_manager import memory_manager
     return memory_manager.force_garbage_collection()
 
+@app.post("/api/system/restart")
+def api_restart_server():
+    """Trigger clean server process restart to reload Python modules."""
+    def _shutdown():
+        time.sleep(0.5)
+        os._exit(42)  # Exit code 42 triggers start_agent.bat restart loop
+
+    import threading, time
+    threading.Thread(target=_shutdown, daemon=True).start()
+    return {"status": "restarting", "message": "Server process is restarting..."}
+
 @app.post("/api/models/pull")
 def api_pull_model(req: PullModelRequest, background_tasks: BackgroundTasks):
     """Pull a new GGUF model from Hugging Face / Ollama in the background."""

@@ -96,7 +96,18 @@ echo ===================================================================
 echo.
 
 start http://localhost:8100
+
+:server_loop
 %PYTHON_CMD% -m ollama_agents.cli serve --host 0.0.0.0 --port 8100
+if %errorlevel% equ 42 (
+    echo.
+    echo ===================================================================
+    echo   [RESTART] Reloading Ollama Agents Server ^& Python Modules...
+    echo ===================================================================
+    echo.
+    timeout /t 1 /nobreak >nul
+    goto server_loop
+)
 
 echo.
 echo Server shut down.
