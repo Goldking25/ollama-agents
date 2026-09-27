@@ -39,12 +39,16 @@ echo.
 echo [3/6] Checking ComfyUI status (Port 8000)...
 curl -s http://127.0.0.1:8000/system_stats >nul 2>&1
 if %errorlevel% neq 0 (
-    if exist "C:\Users\manig\Downloads\ComfyUI_windows_portable\run_nvidia_gpu.bat" (
-        echo [!] ComfyUI is not running. Starting ComfyUI from C:\Users\manig\Downloads\ComfyUI_windows_portable ...
+    if exist "%LOCALAPPDATA%\Programs\ComfyUI\Comfy Desktop.exe" (
+        echo [!] ComfyUI is not running. Starting ComfyUI Desktop App...
+        start "" "%LOCALAPPDATA%\Programs\ComfyUI\Comfy Desktop.exe"
+        echo [*] ComfyUI Desktop started. It may take a moment to initialize.
+    ) else if exist "C:\Users\manig\Downloads\ComfyUI_windows_portable\run_nvidia_gpu.bat" (
+        echo [!] ComfyUI is not running. Starting ComfyUI Portable...
         start "ComfyUI Portable" /D "C:\Users\manig\Downloads\ComfyUI_windows_portable" run_nvidia_gpu.bat
         echo [*] ComfyUI Portable started in background window.
     ) else (
-        echo [!] ComfyUI portable path not found. Skipping ComfyUI auto-start.
+        echo [!] ComfyUI installation not found. Skipping ComfyUI auto-start.
     )
 ) else (
     echo [+] ComfyUI API is active on port 8000.

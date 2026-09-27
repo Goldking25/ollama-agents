@@ -361,6 +361,8 @@
         <div class="tab-switcher">
             <button type="button" class="tab-btn active" data-tab="chat">💬 Interactive Chat</button>
             <button type="button" class="tab-btn" data-tab="goals">🎯 Multi-Session Goals</button>
+            <button type="button" class="tab-btn" data-tab="files">📁 Files & Artifacts</button>
+            <button type="button" class="tab-btn" data-tab="media">🎨 Media Studio</button>
             <button type="button" class="tab-btn" data-tab="cluster">🖥️ Cluster Nodes <span id="clusterNodeCountBadge" style="background: rgba(16, 185, 129, 0.25); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); padding: 0.1rem 0.4rem; border-radius: 10px; font-size: 0.72rem; margin-left: 0.2rem;">1 Node</span></button>
             <button type="button" class="tab-btn" data-tab="reflections">🧠 Self-Improvement</button>
             <button type="button" class="tab-btn" data-tab="hfmodels">🤗 Hugging Face Models</button>
@@ -382,23 +384,27 @@
         <div id="tab-chat" class="tab-pane active">
             <div class="chat-container">
                 <div class="chat-header">
-                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
                         <span style="font-weight: 600;">🤖 Conversational Agent Workspace</span>
-                        <span style="font-size: 0.8rem; color: var(--text-muted);" id="chatModelBadge">Model: deepseek-r1:8b</span>
+                        <div style="display: flex; align-items: center; gap: 0.4rem; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 0.2rem 0.5rem;">
+                            <span style="font-size: 0.75rem; color: #a5b4fc;">💬 Session:</span>
+                            <select id="chatSessionSelect" onchange="switchSession(this.value)" style="background: rgba(9, 13, 22, 0.8); border: 1px solid var(--panel-border); color: var(--text-main); padding: 0.2rem 0.5rem; border-radius: 6px; font-size: 0.78rem; max-width: 170px;">
+                                <option value="default_session">Default Chat</option>
+                            </select>
+                            <button onclick="createNewSession()" class="chip" style="padding: 0.2rem 0.45rem; font-size: 0.75rem; background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4);" title="Start a fresh chat thread">+ New Chat</button>
+                            <button onclick="deleteCurrentSession()" class="chip" style="padding: 0.2rem 0.45rem; font-size: 0.75rem; color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3);" title="Delete current chat session">🗑️</button>
+                        </div>
                     </div>
                     <div style="display: flex; gap: 0.5rem; align-items: center;">
-                        <select id="chatModelSelect" onchange="updateModelLabel(this.value)" style="background: rgba(9, 13, 22, 0.7); border: 1px solid var(--panel-border); color: var(--text-main); padding: 0.3rem 0.6rem; border-radius: 8px; font-size: 0.8rem;">
-                            <option value="deepseek-r1:8b">deepseek-r1:8b</option>
-                            <option value="llama3.1:latest">llama3.1:latest</option>
-                            <option value="huihui_ai/qwen2.5-abliterate:7b-instruct">qwen2.5:7b</option>
-                        </select>
+                        <span style="font-size: 0.78rem; color: var(--text-muted);" id="chatModelBadge">Model: deepseek-r1:8b</span>
+                        <select id="chatModelSelect" onchange="updateModelLabel(this.value)" style="background: rgba(9, 13, 22, 0.7); border: 1px solid rgba(99, 102, 241, 0.4); color: #c7d2fe; padding: 0.4rem 0.8rem; border-radius: 8px; font-weight: 600; font-size: 0.85rem; outline: none; cursor: pointer; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);"><option>Loading models...</option></select>
                         <select id="chatMaxTurnsSelect" style="background: rgba(9, 13, 22, 0.7); border: 1px solid var(--panel-border); color: var(--text-main); padding: 0.3rem 0.6rem; border-radius: 8px; font-size: 0.8rem;" title="Reasoning turn limit">
                             <option value="25">25 turns</option>
                             <option value="50" selected>50 turns</option>
                             <option value="75">75 turns</option>
                             <option value="100">100 turns</option>
                         </select>
-                        <button onclick="clearChat()" class="chip" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">🗑️ Clear Chat</button>
+                        <button onclick="clearChat()" class="chip" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3);" title="Clear current chat">Clear</button>
                     </div>
                 </div>
 
@@ -471,10 +477,7 @@
                     </div>
                     <div>
                         <label style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.4rem; display: block;">Execution Model</label>
-                        <select id="goalModelSelect" style="background: rgba(9, 13, 22, 0.8); border: 1px solid var(--panel-border); border-radius: 8px; padding: 0.65rem; color: var(--text-main); width: 100%; font-family: inherit;">
-                            <option value="deepseek-r1:8b">deepseek-r1:8b</option>
-                            <option value="llama3.1:latest">llama3.1:latest</option>
-                        </select>
+                        <select id="goalModelSelect" style="background: rgba(9, 13, 22, 0.7); border: 1px solid var(--panel-border); color: var(--text-main); padding: 0.4rem 0.8rem; border-radius: 8px; font-size: 0.85rem;"><option>Loading models...</option></select>
                     </div>
                     <button class="btn-send" onclick="createGoal()">+ Decompose & Register Goal</button>
                 </div>
@@ -599,6 +602,233 @@
             </div>
         </div>
 
+        <!-- TAB: Workspace File Explorer & Artifact Viewer -->
+        <div id="tab-files" class="tab-pane">
+            <div class="panel">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--panel-border); padding-bottom: 0.8rem; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+                    <div>
+                        <span style="font-weight: 700; font-size: 1.15rem; color: #c7d2fe;">📁 Workspace Files & Generated Artifacts</span>
+                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">Direct access to generated APKs, source code, images, and project output in <code>~/ollama_workspace</code></div>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <input id="workspaceSearchInput" type="text" placeholder="Search workspace files..." oninput="filterWorkspaceFiles()" style="background: rgba(9, 13, 22, 0.7); border: 1px solid var(--panel-border); color: var(--text-main); padding: 0.35rem 0.7rem; border-radius: 8px; font-size: 0.82rem;">
+                        <button class="chip" onclick="fetchWorkspaceFiles()" style="background: rgba(99, 102, 241, 0.2); color: #818cf8;">↻ Refresh Files</button>
+                    </div>
+                </div>
+
+                <div id="workspaceFilesContainer" style="overflow-x: auto; background: rgba(9, 13, 22, 0.4); border-radius: 10px; border: 1px solid var(--panel-border); padding: 0.5rem 0;">
+                    <div id="workspaceFilesTreeBody" style="font-size: 0.88rem;">
+                        <div style="text-align: center; padding: 2rem; color: var(--text-muted);">Loading workspace files...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: Media Studio (SD WebUI Forge & ComfyUI) -->
+        <div id="tab-media" class="tab-pane">
+            <div class="panel">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--panel-border); padding-bottom: 0.8rem; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+                    <div>
+                        <span style="font-weight: 700; font-size: 1.15rem; color: #c7d2fe;">🎨 Generative Media Studio</span>
+                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">Image generation & editing via Stable Diffusion WebUI Forge (port 7860) and video rendering via ComfyUI (port 8188)</div>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button class="chip" onclick="checkMediaStatus()" style="background: rgba(99, 102, 241, 0.2); color: #818cf8;">⚡ Test Services Connection</button>
+                        <button class="chip" onclick="fetchMediaGallery()" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">↻ Refresh Media Gallery</button>
+                    </div>
+                </div>
+
+                <!-- Live Service Status Indicators Bar -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
+                    <!-- Forge Status Card -->
+                    <div style="background: rgba(9, 13, 22, 0.6); border: 1px solid var(--panel-border); border-radius: 10px; padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 0.6rem;">
+                            <span style="font-size: 1.2rem;">🎨</span>
+                            <div>
+                                <div style="font-weight: 600; font-size: 0.88rem; color: var(--text-main);">SD WebUI Forge</div>
+                                <div style="font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.3rem;">
+                                    <span>URL:</span>
+                                    <input type="text" id="forgeApiUrlInput" value="http://127.0.0.1:7860" style="padding: 0.15rem 0.4rem !important; font-size: 0.75rem !important; width: 170px !important;">
+                                </div>
+                            </div>
+                        </div>
+                        <span id="forgeStatusBadge" style="font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 12px; background: rgba(148, 163, 184, 0.15); color: #94a3b8; font-weight: 600;">CHECKING...</span>
+                    </div>
+
+                    <!-- ComfyUI Status Card -->
+                    <div style="background: rgba(9, 13, 22, 0.6); border: 1px solid var(--panel-border); border-radius: 10px; padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 0.6rem;">
+                            <span style="font-size: 1.2rem;">🎬</span>
+                            <div>
+                                <div style="font-weight: 600; font-size: 0.88rem; color: var(--text-main);">ComfyUI Video API</div>
+                                <div style="font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.3rem;">
+                                    <span>URL:</span>
+                                    <input type="text" id="comfyApiUrlInput" value="http://127.0.0.1:8000" style="padding: 0.15rem 0.4rem !important; font-size: 0.75rem !important; width: 170px !important;">
+                                </div>
+                            </div>
+                        </div>
+                        <span id="comfyStatusBadge" style="font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 12px; background: rgba(148, 163, 184, 0.15); color: #94a3b8; font-weight: 600;">CHECKING...</span>
+                    </div>
+                </div>
+
+                <!-- 2-Column Studio: Forge Images vs ComfyUI Videos -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 1.25rem;">
+                    <!-- LEFT: SD Forge Image Studio -->
+                    <div style="background: rgba(9, 13, 22, 0.7); border: 1px solid var(--panel-border); border-radius: 12px; padding: 1.2rem; display: flex; flex-direction: column; gap: 0.8rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <strong style="color: #a5b4fc; font-size: 1rem;">🖼️ Stable Diffusion WebUI Forge (txt2img & img2img)</strong>
+                            <div style="display: flex; gap: 0.3rem;">
+                                <button type="button" class="chip active" id="btnModeTxt2Img" onclick="setForgeMode('txt2img')" style="font-size: 0.75rem;">Text-to-Image</button>
+                                <button type="button" class="chip" id="btnModeImg2Img" onclick="setForgeMode('img2img')" style="font-size: 0.75rem;">Image-to-Image</button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label style="font-size: 0.78rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Prompt:</label>
+                            <textarea id="forgePromptInput" rows="2" placeholder="e.g. A hyper-realistic cyberpunk cybernetic feline with neon lights in an alleyway, cinematic 8k photorealistic..."></textarea>
+                        </div>
+
+                        <div>
+                            <label style="font-size: 0.78rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Negative Prompt:</label>
+                            <input type="text" id="forgeNegPromptInput" placeholder="blurry, low quality, bad anatomy, deformed, distorted, watermark" value="blurry, low quality, bad anatomy, deformed, distorted">
+                        </div>
+
+                        <!-- img2img upload section (hidden by default) -->
+                        <div id="forgeImg2ImgSection" style="display: none; background: rgba(0,0,0,0.3); border: 1px dashed var(--primary); padding: 0.6rem; border-radius: 8px;">
+                            <label style="font-size: 0.78rem; color: #818cf8; display: block; margin-bottom: 0.3rem;">Source Image for img2img (upload or select):</label>
+                            <input type="file" id="forgeImg2ImgFile" accept="image/*" onchange="handleForgeImgUpload(event)" style="font-size: 0.8rem;">
+                            <input type="text" id="forgeImg2ImgPath" placeholder="or relative workspace path, e.g. uploads/input.png" style="margin-top: 0.3rem; font-size: 0.8rem;">
+                            <div style="margin-top: 0.4rem; display: flex; align-items: center; gap: 0.5rem;">
+                                <span style="font-size: 0.75rem; color: var(--text-muted);">Denoising Strength:</span>
+                                <input type="number" id="forgeDenoisingInput" value="0.75" step="0.05" min="0.0" max="1.0" style="width: 80px !important; font-size: 0.78rem !important; padding: 0.2rem 0.4rem !important;">
+                            </div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem;">
+                            <div>
+                                <label style="font-size: 0.72rem; color: var(--text-muted);">Width:</label>
+                                <select id="forgeWidthSelect" style="padding: 0.3rem !important; font-size: 0.78rem !important;">
+                                    <option value="512">512px</option>
+                                    <option value="768">768px</option>
+                                    <option value="1024" selected>1024px</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size: 0.72rem; color: var(--text-muted);">Height:</label>
+                                <select id="forgeHeightSelect" style="padding: 0.3rem !important; font-size: 0.78rem !important;">
+                                    <option value="512">512px</option>
+                                    <option value="768">768px</option>
+                                    <option value="1024" selected>1024px</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size: 0.72rem; color: var(--text-muted);">Steps:</label>
+                                <input type="number" id="forgeStepsInput" value="5" min="1" max="50" style="padding: 0.3rem !important; font-size: 0.78rem !important;">
+                            </div>
+                            <div>
+                                <label style="font-size: 0.72rem; color: var(--text-muted);">CFG Scale:</label>
+                                <input type="number" id="forgeCfgInput" value="1.0" step="0.5" min="0.5" max="15.0" style="padding: 0.3rem !important; font-size: 0.78rem !important;">
+                            </div>
+                        </div>
+
+                        <button class="btn-send" id="btnGenerateForgeImage" onclick="generateMediaImage()" style="margin-top: 0.4rem;">
+                            🎨 Generate / Edit Image
+                        </button>
+
+                        <div id="forgeResultContainer" style="display: none; margin-top: 0.5rem; background: rgba(0,0,0,0.4); border-radius: 8px; padding: 0.8rem; border: 1px solid var(--panel-border);">
+                            <div style="font-size: 0.8rem; color: #a7f3d0; margin-bottom: 0.4rem; font-weight: 600;">✓ Generated Image:</div>
+                            <img id="forgeResultImg" src="" alt="Result" style="max-width: 100%; max-height: 320px; border-radius: 8px; object-fit: contain;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                                <a id="forgeResultDownload" href="" download target="_blank" class="chip" style="background: rgba(16, 185, 129, 0.2); color: #10b981; text-decoration: none;">📥 Download Image</a>
+                                <button class="chip" onclick="window.open(document.getElementById('forgeResultImg').src, '_blank')">🔍 Open Full View</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- RIGHT: ComfyUI Video Studio -->
+                    <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid var(--panel-border); border-radius: 12px; padding: 1.2rem; display: flex; flex-direction: column; gap: 0.8rem;">
+                        <strong style="color: #6ee7b7; font-size: 1rem;">🎬 ComfyUI Prompt-to-Video Studio</strong>
+
+                        <div>
+                            <label style="font-size: 0.78rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Video Motion Prompt:</label>
+                            <textarea id="comfyPromptInput" rows="2" placeholder="e.g. A cinematic drone flyover of a glowing futuristic neon metropolis at night, smooth motion, high detail..."></textarea>
+                        </div>
+
+                        <div>
+                            <label style="font-size: 0.78rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Negative Prompt:</label>
+                            <input type="text" id="comfyNegPromptInput" placeholder="blurry, low quality, static, jittery, distorted" value="blurry, low quality, distorted, static, jittery">
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem;">
+                            <div>
+                                <label style="font-size: 0.72rem; color: var(--text-muted);">Width:</label>
+                                <select id="comfyWidthSelect" style="padding: 0.3rem !important; font-size: 0.78rem !important;">
+                                    <option value="512" selected>512px</option>
+                                    <option value="768">768px</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size: 0.72rem; color: var(--text-muted);">Height:</label>
+                                <select id="comfyHeightSelect" style="padding: 0.3rem !important; font-size: 0.78rem !important;">
+                                    <option value="512" selected>512px</option>
+                                    <option value="768">768px</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size: 0.72rem; color: var(--text-muted);">Frames:</label>
+                                <input type="number" id="comfyFramesInput" value="16" min="8" max="64" style="padding: 0.3rem !important; font-size: 0.78rem !important;">
+                            </div>
+                            <div>
+                                <label style="font-size: 0.72rem; color: var(--text-muted);">FPS:</label>
+                                <input type="number" id="comfyFpsInput" value="8" min="4" max="30" style="padding: 0.3rem !important; font-size: 0.78rem !important;">
+                            </div>
+                        </div>
+
+                        <button class="btn-send" id="btnGenerateComfyVideo" onclick="generateMediaVideo()" style="margin-top: 0.4rem; background: linear-gradient(135deg, #10b981, #059669);">
+                            🎬 Generate Video
+                        </button>
+
+                        <div id="comfyResultContainer" style="display: none; margin-top: 0.5rem; background: rgba(0,0,0,0.4); border-radius: 8px; padding: 0.8rem; border: 1px solid var(--panel-border);">
+                            <div style="font-size: 0.8rem; color: #a7f3d0; margin-bottom: 0.4rem; font-weight: 600;">✓ Generated Video:</div>
+                            <video id="comfyResultVideo" controls autoplay loop muted style="max-width: 100%; max-height: 320px; border-radius: 8px;"></video>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                                <a id="comfyResultDownload" href="" download target="_blank" class="chip" style="background: rgba(16, 185, 129, 0.2); color: #10b981; text-decoration: none;">📥 Download Video</a>
+                                <button class="chip" onclick="window.open(document.getElementById('comfyResultVideo').src, '_blank')">🔍 Open Full View</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bottom Section: Media Gallery Grid -->
+                <div style="margin-top: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                        <strong style="color: var(--text-main); font-size: 1rem;">🎞️ Generated Workspace Media Gallery:</strong>
+                        <div style="display: flex; gap: 0.3rem;">
+                            <button class="chip active" id="galleryFilterAll" onclick="filterGallery('all')">All Media</button>
+                            <button class="chip" id="galleryFilterImages" onclick="filterGallery('images')">Images</button>
+                            <button class="chip" id="galleryFilterVideos" onclick="filterGallery('videos')">Videos</button>
+                        </div>
+                    </div>
+                    <div id="mediaGalleryGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem;">
+                        <div style="color: var(--text-muted); font-size: 0.9rem;">Loading media gallery...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- File Preview Modal -->
+    <div id="filePreviewModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+        <div style="background: #0d1117; border: 1px solid var(--panel-border); border-radius: 12px; width: 85%; max-width: 900px; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.6);">
+            <div style="padding: 0.8rem 1.25rem; border-bottom: 1px solid var(--panel-border); display: flex; justify-content: space-between; align-items: center; background: rgba(9, 13, 22, 0.8);">
+                <div style="font-weight: 600; color: #c7d2fe;" id="previewModalTitle">File Preview</div>
+                <button onclick="closePreviewModal()" style="background: none; border: none; color: #ef4444; font-size: 1.2rem; cursor: pointer;">✕</button>
+            </div>
+            <div style="flex: 1; overflow: auto; padding: 1.2rem; background: #060911;">
+                <pre id="previewModalContent" style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: #a7f3d0; white-space: pre-wrap; word-break: break-word;"></pre>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -746,17 +976,25 @@
 
         async function fetchInstalledModels() {
             try {
-                const res = await fetch(`${API_BASE}/api/models`);
+                const res = await fetch(`${API_BASE}/api/models/installed`);
                 const data = await res.json();
                 if (data.models && data.models.length > 0) {
                     const chatSelect = document.getElementById("chatModelSelect");
                     if (chatSelect) {
-                        chatSelect.innerHTML = data.models.map(m => `<option value="${m}">${m}</option>`).join("");
+                        const prev = chatSelect.value;
+                        chatSelect.innerHTML = data.models.map(m => {
+                            const isVision = m.includes("vl") || m.includes("vision") || m.includes("gemma3") || m.includes("moondream");
+                            const badge = isVision ? " [👁️ Vision]" : "";
+                            return `<option value="${m}">${m}${badge}</option>`;
+                        }).join("");
+                        if (data.models.includes(prev)) chatSelect.value = prev;
                         updateModelLabel(chatSelect.value);
                     }
                     const goalSelect = document.getElementById("goalModelSelect");
                     if (goalSelect) {
+                        const prev = goalSelect.value;
                         goalSelect.innerHTML = data.models.map(m => `<option value="${m}">${m}</option>`).join("");
+                        if (data.models.includes(prev)) goalSelect.value = prev;
                     }
                 }
             } catch (err) {
@@ -788,6 +1026,276 @@
             if (tabName === 'goals') fetchGoals();
             if (tabName === 'reflections') fetchReflections();
             if (tabName === 'hfmodels') fetchTrendingHFModels();
+            if (tabName === 'files') fetchWorkspaceFiles();
+            if (tabName === 'media') { checkMediaStatus(); fetchMediaGallery(); }
+        }
+
+        // ── Media Studio Functions ──────────────────────────────────────────
+        let currentForgeMode = 'txt2img';
+        let activeGalleryMedia = [];
+
+        function setForgeMode(mode) {
+            currentForgeMode = mode;
+            const btnTxt = document.getElementById('btnModeTxt2Img');
+            const btnImg = document.getElementById('btnModeImg2Img');
+            const section = document.getElementById('forgeImg2ImgSection');
+            if (mode === 'img2img') {
+                if (btnImg) btnImg.classList.add('active');
+                if (btnTxt) btnTxt.classList.remove('active');
+                if (section) section.style.display = 'block';
+            } else {
+                if (btnTxt) btnTxt.classList.add('active');
+                if (btnImg) btnImg.classList.remove('active');
+                if (section) section.style.display = 'none';
+            }
+        }
+
+        async function handleForgeImgUpload(event) {
+            const files = event.target.files;
+            if (!files || files.length === 0) return;
+            const formData = new FormData();
+            formData.append("file", files[0]);
+            try {
+                const res = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: formData });
+                const data = await res.json();
+                if (data.status === "success") {
+                    document.getElementById("forgeImg2ImgPath").value = data.filepath;
+                } else {
+                    alert("Upload error: " + (data.detail || data.message));
+                }
+            } catch (err) {
+                alert("Upload failed: " + err.message);
+            }
+        }
+
+        async function checkMediaStatus() {
+            const forgeUrl = document.getElementById('forgeApiUrlInput')?.value || "http://127.0.0.1:7860";
+            const comfyUrl = document.getElementById('comfyApiUrlInput')?.value || "http://127.0.0.1:8000";
+            
+            const badgeForge = document.getElementById('forgeStatusBadge');
+            const badgeComfy = document.getElementById('comfyStatusBadge');
+
+            if (badgeForge) {
+                badgeForge.innerText = "TESTING...";
+                badgeForge.style.background = "rgba(148, 163, 184, 0.2)";
+                badgeForge.style.color = "#94a3b8";
+            }
+            if (badgeComfy) {
+                badgeComfy.innerText = "TESTING...";
+                badgeComfy.style.background = "rgba(148, 163, 184, 0.2)";
+                badgeComfy.style.color = "#94a3b8";
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/api/media/status?forge_url=${encodeURIComponent(forgeUrl)}&comfy_url=${encodeURIComponent(comfyUrl)}`);
+                const data = await res.json();
+
+                if (badgeForge) {
+                    if (data.forge && data.forge.online) {
+                        badgeForge.innerText = "🟢 ONLINE";
+                        badgeForge.style.background = "rgba(16, 185, 129, 0.2)";
+                        badgeForge.style.color = "#10b981";
+                    } else {
+                        badgeForge.innerText = "🔴 OFFLINE";
+                        badgeForge.style.background = "rgba(239, 68, 68, 0.2)";
+                        badgeForge.style.color = "#ef4444";
+                    }
+                }
+
+                if (badgeComfy) {
+                    if (data.comfy && data.comfy.online) {
+                        badgeComfy.innerText = "🟢 ONLINE";
+                        badgeComfy.style.background = "rgba(16, 185, 129, 0.2)";
+                        badgeComfy.style.color = "#10b981";
+                    } else {
+                        badgeComfy.innerText = "🔴 OFFLINE";
+                        badgeComfy.style.background = "rgba(239, 68, 68, 0.2)";
+                        badgeComfy.style.color = "#ef4444";
+                    }
+                }
+            } catch (e) {
+                if (badgeForge) badgeForge.innerText = "OFFLINE";
+                if (badgeComfy) badgeComfy.innerText = "OFFLINE";
+            }
+        }
+
+        async function generateMediaImage() {
+            const btn = document.getElementById('btnGenerateForgeImage');
+            const prompt = document.getElementById('forgePromptInput')?.value.trim();
+            if (!prompt) return alert("Please enter an image prompt!");
+
+            const negPrompt = document.getElementById('forgeNegPromptInput')?.value.trim() || "";
+            const width = parseInt(document.getElementById('forgeWidthSelect')?.value || 1024, 10);
+            const height = parseInt(document.getElementById('forgeHeightSelect')?.value || 1024, 10);
+            const steps = parseInt(document.getElementById('forgeStepsInput')?.value || 5, 10);
+            const cfg = parseFloat(document.getElementById('forgeCfgInput')?.value || 1.0);
+            const apiUrl = document.getElementById('forgeApiUrlInput')?.value || "http://127.0.0.1:7860";
+
+            btn.disabled = true;
+            btn.innerText = "⏳ Generating with SD Forge...";
+
+            try {
+                let res, data;
+                if (currentForgeMode === 'img2img') {
+                    const imgPath = document.getElementById('forgeImg2ImgPath')?.value.trim();
+                    if (!imgPath) {
+                        btn.disabled = false;
+                        btn.innerText = "🎨 Generate / Edit Image";
+                        return alert("Please upload or provide an input image path for img2img!");
+                    }
+                    const denoising = parseFloat(document.getElementById('forgeDenoisingInput')?.value || 0.75);
+                    res = await fetch(`${API_BASE}/api/media/edit-image`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            image_path: imgPath,
+                            prompt,
+                            negative_prompt: negPrompt,
+                            denoising_strength: denoising,
+                            steps,
+                            api_url: apiUrl
+                        })
+                    });
+                } else {
+                    res = await fetch(`${API_BASE}/api/media/generate-image`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            prompt,
+                            negative_prompt: negPrompt,
+                            width,
+                            height,
+                            steps,
+                            cfg_scale: cfg,
+                            api_url: apiUrl
+                        })
+                    });
+                }
+
+                data = await res.json();
+                if (data.status === "success" && data.url) {
+                    const cont = document.getElementById('forgeResultContainer');
+                    const img = document.getElementById('forgeResultImg');
+                    const dl = document.getElementById('forgeResultDownload');
+                    if (img) img.src = data.url;
+                    if (dl) dl.href = data.url;
+                    if (cont) cont.style.display = "block";
+                    fetchMediaGallery();
+                } else {
+                    alert("SD Forge Generation Result:\n" + (data.message || JSON.stringify(data)));
+                }
+            } catch (err) {
+                alert("Generation error: " + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "🎨 Generate / Edit Image";
+            }
+        }
+
+        async function generateMediaVideo() {
+            const btn = document.getElementById('btnGenerateComfyVideo');
+            const prompt = document.getElementById('comfyPromptInput')?.value.trim();
+            if (!prompt) return alert("Please enter a video motion prompt!");
+
+            const negPrompt = document.getElementById('comfyNegPromptInput')?.value.trim() || "";
+            const width = parseInt(document.getElementById('comfyWidthSelect')?.value || 512, 10);
+            const height = parseInt(document.getElementById('comfyHeightSelect')?.value || 512, 10);
+            const frames = parseInt(document.getElementById('comfyFramesInput')?.value || 16, 10);
+            const fps = parseInt(document.getElementById('comfyFpsInput')?.value || 8, 10);
+            const apiUrl = document.getElementById('comfyApiUrlInput')?.value || "http://127.0.0.1:8000";
+
+            btn.disabled = true;
+            btn.innerText = "⏳ Rendering Video with ComfyUI...";
+
+            try {
+                const res = await fetch(`${API_BASE}/api/media/generate-video`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ prompt, negative_prompt: negPrompt, width, height, frames, fps, api_url: apiUrl })
+                });
+                const data = await res.json();
+                if (data.status === "success" && data.url) {
+                    const cont = document.getElementById('comfyResultContainer');
+                    const vid = document.getElementById('comfyResultVideo');
+                    const dl = document.getElementById('comfyResultDownload');
+                    if (vid) vid.src = data.url;
+                    if (dl) dl.href = data.url;
+                    if (cont) cont.style.display = "block";
+                    fetchMediaGallery();
+                } else {
+                    alert("ComfyUI Video Result:\n" + (data.message || JSON.stringify(data)));
+                }
+            } catch (err) {
+                alert("Video generation error: " + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "🎬 Generate Video";
+            }
+        }
+
+        async function fetchMediaGallery() {
+            const grid = document.getElementById('mediaGalleryGrid');
+            if (!grid) return;
+            try {
+                const res = await fetch(`${API_BASE}/api/media/gallery?media_type=all`);
+                const data = await res.json();
+                const all = [
+                    ...(data.images || []).map(i => ({ ...i, mediaType: 'image' })),
+                    ...(data.videos || []).map(v => ({ ...v, mediaType: 'video' }))
+                ];
+                all.sort((a,b) => (b.modified || '').localeCompare(a.modified || ''));
+                activeGalleryMedia = all;
+                renderGallery(activeGalleryMedia);
+            } catch (err) {
+                grid.innerHTML = `<div style="color: var(--accent-red);">Failed to load gallery.</div>`;
+            }
+        }
+
+        function filterGallery(type) {
+            ['All', 'Images', 'Videos'].forEach(k => {
+                const btn = document.getElementById(`galleryFilter${k}`);
+                if (btn) btn.classList.remove('active');
+            });
+            const activeBtn = document.getElementById(`galleryFilter${type.charAt(0).toUpperCase() + type.slice(1)}`);
+            if (activeBtn) activeBtn.classList.add('active');
+
+            if (type === 'all') {
+                renderGallery(activeGalleryMedia);
+            } else if (type === 'images') {
+                renderGallery(activeGalleryMedia.filter(m => m.mediaType === 'image'));
+            } else if (type === 'videos') {
+                renderGallery(activeGalleryMedia.filter(m => m.mediaType === 'video'));
+            }
+        }
+
+        function renderGallery(items) {
+            const grid = document.getElementById('mediaGalleryGrid');
+            if (!grid) return;
+            if (!items || items.length === 0) {
+                grid.innerHTML = `<div style="color: var(--text-muted); font-size: 0.88rem; padding: 1.5rem; text-align: center; grid-column: 1 / -1;">No images or videos generated yet in ~/ollama_workspace/. Create one above!</div>`;
+                return;
+            }
+            grid.innerHTML = items.map(m => {
+                const isVideo = m.mediaType === 'video';
+                const mediaElement = isVideo
+                    ? `<video src="${m.url}" controls muted loop style="width: 100%; height: 160px; object-fit: cover; border-radius: 8px;"></video>`
+                    : `<img src="${m.url}" alt="${m.name}" style="width: 100%; height: 160px; object-fit: cover; border-radius: 8px; cursor: pointer;" onclick="window.open('${m.url}', '_blank')">`;
+                
+                return `
+                    <div style="background: rgba(9, 13, 22, 0.6); border: 1px solid var(--panel-border); border-radius: 10px; padding: 0.6rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                        ${mediaElement}
+                        <div style="font-size: 0.78rem; font-weight: 600; color: #c7d2fe; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${m.name}</div>
+                        <div style="font-size: 0.72rem; color: var(--text-muted); display: flex; justify-content: space-between;">
+                            <span>${m.size_formatted || ''}</span>
+                            <span>${(m.modified || '').substring(0, 10)}</span>
+                        </div>
+                        <div style="display: flex; gap: 0.3rem; margin-top: 0.2rem;">
+                            <a href="${m.url}" download target="_blank" class="chip" style="font-size: 0.72rem; padding: 0.15rem 0.5rem; text-decoration: none; text-align: center; flex: 1; background: rgba(16, 185, 129, 0.15); color: #10b981;">📥 Download</a>
+                            <button class="chip" onclick="navigator.clipboard.writeText(window.location.origin + '${m.url}'); alert('Copied URL: ' + window.location.origin + '${m.url}');" style="font-size: 0.72rem; padding: 0.15rem 0.4rem;">📋</button>
+                        </div>
+                    </div>
+                `;
+            }).join("");
         }
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -798,6 +1306,11 @@
                     openTab(tabName);
                 });
             });
+
+            fetchInstalledModels();
+            loadSessionsList();
+            fetchChatHistory(currentSessionId);
+            fetchWorkspaceFiles();
         });
 
         // ── Voice Input (Speech-to-Text with Continuous Listening) ───────────────────
@@ -896,10 +1409,89 @@
             sendMessage();
         }
 
-        async function clearChat() {
-            if (!confirm("Are you sure you want to clear the chat conversation history?")) return;
+        // ── Session Management State ─────────────────────────────────────────
+        let currentSessionId = "default_session";
+        let allWorkspaceFiles = [];
+
+        async function loadSessionsList() {
             try {
-                await fetch(`${API_BASE}/api/chat/clear?session_id=default_session`, { method: "POST" });
+                const res = await fetch(`${API_BASE}/api/chat/sessions`);
+                const data = await res.json();
+                const select = document.getElementById("chatSessionSelect");
+                if (!select) return;
+
+                const sessions = data.sessions || [];
+                // Ensure default_session is always represented
+                const hasDefault = sessions.some(s => s.session_id === "default_session");
+                let optionsHtml = hasDefault ? "" : `<option value="default_session">Default Chat</option>`;
+                
+                sessions.forEach(s => {
+                    const label = s.session_id === "default_session" 
+                        ? `Default Chat (${s.message_count} msgs)` 
+                        : `${s.title || s.session_id} (${s.message_count})`;
+                    optionsHtml += `<option value="${s.session_id}">${label}</option>`;
+                });
+
+                select.innerHTML = optionsHtml;
+                select.value = currentSessionId;
+            } catch (err) {
+                console.warn("Could not load sessions list:", err);
+            }
+        }
+
+        async function switchSession(sessionId) {
+            currentSessionId = sessionId;
+            await fetchChatHistory(currentSessionId);
+        }
+
+        async function createNewSession() {
+            const name = prompt("Enter a name or topic for the new chat session (or leave blank for auto):");
+            const newId = name && name.trim() ? "session_" + name.trim().toLowerCase().replace(/[^a-z0-9]/g, "_") : "chat_" + Date.now();
+            currentSessionId = newId;
+
+            const select = document.getElementById("chatSessionSelect");
+            if (select) {
+                const opt = document.createElement("option");
+                opt.value = newId;
+                opt.innerText = (name && name.trim()) || "New Chat";
+                select.appendChild(opt);
+                select.value = newId;
+            }
+
+            document.getElementById("chatMessages").innerHTML = `
+                <div class="message-row agent">
+                    <div class="avatar agent">🤖</div>
+                    <div class="bubble">
+                        Started new conversation thread! How can I help you?
+                    </div>
+                </div>
+            `;
+        }
+
+        async function deleteCurrentSession() {
+            if (currentSessionId === "default_session") {
+                if (!confirm("Clear message history in default session?")) return;
+                await clearChat();
+                return;
+            }
+
+            if (!confirm(`Delete chat session '${currentSessionId}'?`)) return;
+
+            try {
+                await fetch(`${API_BASE}/api/chat/sessions/${encodeURIComponent(currentSessionId)}`, { method: "DELETE" });
+            } catch (err) {
+                console.warn("Session deletion error:", err);
+            }
+
+            currentSessionId = "default_session";
+            await loadSessionsList();
+            await fetchChatHistory("default_session");
+        }
+
+        async function clearChat() {
+            if (!confirm("Are you sure you want to clear this chat's messages?")) return;
+            try {
+                await fetch(`${API_BASE}/api/chat/clear?session_id=${encodeURIComponent(currentSessionId)}`, { method: "POST" });
             } catch (err) {
                 console.warn("Failed to reset backend session history:", err);
             }
@@ -911,25 +1503,45 @@
                     </div>
                 </div>
             `;
+            loadSessionsList();
         }
 
-        async function fetchChatHistory() {
+        async function fetchChatHistory(sessionId = "default_session") {
             try {
-                const res = await fetch(`${API_BASE}/api/chat/history?session_id=default_session`);
+                const res = await fetch(`${API_BASE}/api/chat/history?session_id=${encodeURIComponent(sessionId)}`);
                 const data = await res.json();
+                const container = document.getElementById("chatMessages");
                 if (res.ok && data.messages && data.messages.length > 0) {
-                    const container = document.getElementById("chatMessages");
-                    container.innerHTML = ""; // clear placeholder greeting
+                    container.innerHTML = "";
+                    let lastUsedModel = "";
                     data.messages.forEach(msg => {
-                        appendMessage(msg.role, msg.content, msg.attachment);
+                        appendMessage(msg.role, msg.content, msg.attachment, msg.model || "");
+                        if (msg.model) lastUsedModel = msg.model;
                     });
+                    // Auto-sync the model dropdown to this session's model
+                    if (lastUsedModel) {
+                        const modelSel = document.getElementById("chatModelSelect");
+                        if (modelSel && Array.from(modelSel.options).some(o => o.value === lastUsedModel)) {
+                            modelSel.value = lastUsedModel;
+                        }
+                        updateModelLabel(lastUsedModel);
+                    }
+                } else {
+                    container.innerHTML = `
+                        <div class="message-row agent">
+                            <div class="avatar agent">🤖</div>
+                            <div class="bubble">
+                                Hello! I am your Level 4 Autonomous Agent. Ask me anything, or give me a complex task to analyze, research, or write code for. How can I help you today?
+                            </div>
+                        </div>
+                    `;
                 }
             } catch (err) {
-                console.warn("Could not load previous chat history:", err);
+                console.warn("Could not load chat history:", err);
             }
         }
 
-        function appendMessage(role, content, fileAttachment = "") {
+        function appendMessage(role, content, fileAttachment = "", modelName = "") {
             const container = document.getElementById("chatMessages");
             const isUser = role === "user";
             const row = document.createElement("div");
@@ -958,8 +1570,33 @@
                 }
             }
 
+            let modelBadgeHtml = "";
+            if (role === "agent" && modelName) {
+                modelBadgeHtml = `
+                    <div style="font-size: 0.72rem; color: #818cf8; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.35rem;">
+                        <span style="background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.35); padding: 0.15rem 0.55rem; border-radius: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; color: #a5b4fc;">
+                            🧠 <code>${modelName}</code>
+                        </span>
+                    </div>
+                `;
+            }
+
+            let rawContent = (content || "").trim();
+
+            // Fold reasoning thoughts (<think>...</think>) into a sleek accordion drawer
+            let formattedContent = rawContent.replace(/<think>([\s\S]*?)<\/think>/gi, (match, thought) => {
+                const trimmed = thought.trim();
+                if (!trimmed) return "";
+                return `<details style="margin-bottom: 0.6rem; background: rgba(9, 13, 22, 0.5); border: 1px solid rgba(129, 140, 248, 0.25); border-radius: 8px; padding: 0.4rem 0.75rem;"><summary style="cursor: pointer; color: #818cf8; font-weight: 600; font-size: 0.8rem;">💭 Thought Process (Click to view)</summary><div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.4rem; white-space: pre-wrap; font-family: inherit;">${trimmed}</div></details>`;
+            });
+
+            // Prevent blank agent bubbles
+            if (!formattedContent.trim() && role === "agent") {
+                formattedContent = "*(No response generated by model. Please retry or adjust prompt.)*";
+            }
+
             // Convert markdown media (![alt](/workspace/...) and [alt](/workspace/images/...)) to <img> or <video> tags
-            let formattedContent = content
+            formattedContent = formattedContent
                 .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
                     const cleanSrc = src.trim();
                     if (cleanSrc.endsWith('.mp4') || cleanSrc.endsWith('.webm') || cleanSrc.endsWith('.mov')) {
@@ -974,10 +1611,17 @@
                 .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
                 .replace(/\n/g, '<br>');
 
-            // Automatic APK Download Button Detector for Chat
+            // Automatic APK Download Button: Only display when APK was actually produced or requested
             let apkNoticeHtml = "";
-            if (content.includes(".apk")) {
-                const apkMatch = content.match(/([\w-]+\.apk)/i);
+            const isApkArtifact = rawContent.includes(".apk") && (
+                rawContent.toLowerCase().includes("successfully compiled") || 
+                rawContent.includes("Download URL: `/workspace/") || 
+                rawContent.includes("Generated Android APK") ||
+                rawContent.toLowerCase().includes("ready for direct installation")
+            );
+
+            if (isApkArtifact) {
+                const apkMatch = rawContent.match(/([\w-]+\.apk)/i);
                 const apkFilename = apkMatch ? apkMatch[1] : "app-debug.apk";
                 apkNoticeHtml = `
                     <div style="margin-top: 0.8rem; padding: 0.6rem 0.9rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 10px; display: flex; align-items: center; justify-content: space-between;">
@@ -987,7 +1631,7 @@
                 `;
             }
 
-            row.innerHTML = `${avatarHtml}<div class="bubble">${formattedContent}${extraAttachmentHtml}${apkNoticeHtml}</div>`;
+            row.innerHTML = `${avatarHtml}<div class="bubble">${modelBadgeHtml}${formattedContent}${extraAttachmentHtml}${apkNoticeHtml}</div>`;
             container.appendChild(row);
             container.scrollTop = container.scrollHeight;
         }
@@ -1016,42 +1660,323 @@
             btn.disabled = true;
             btn.innerHTML = "⏳ Thinking...";
 
-            // Temporary Agent "Thinking" Bubble
+            // Real-Time Tool & Reasoning Thinking Bubble
             const container = document.getElementById("chatMessages");
             const tempRow = document.createElement("div");
             tempRow.className = "message-row agent";
             tempRow.id = "thinkingBubble";
-            tempRow.innerHTML = `<div class="avatar agent">🤖</div><div class="bubble" style="color: var(--text-muted);"><i>Agent is reasoning & executing tools...</i></div>`;
+            tempRow.innerHTML = `<div class="avatar agent">🤖</div><div class="bubble" style="color: var(--text-muted);"><div style="font-size: 0.72rem; color: #818cf8; margin-bottom: 0.35rem;"><span style="background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.35); padding: 0.12rem 0.5rem; border-radius: 12px; font-weight: 600; color: #a5b4fc;">🧠 <code>${model}</code></span></div><span class="tool-status-text"><i>Agent is reasoning & executing tools...</i></span></div>`;
             container.appendChild(tempRow);
             container.scrollTop = container.scrollHeight;
 
             const maxTurnsEl = document.getElementById("chatMaxTurnsSelect");
             const max_turns = maxTurnsEl ? parseInt(maxTurnsEl.value, 10) : 50;
 
+            let activeSessionId = currentSessionId || "default_session";
+
             try {
-                const res = await fetch(`${API_BASE}/api/task/run`, {
+                // Connect via SSE streaming endpoint for live tool badges
+                const res = await fetch(`${API_BASE}/api/chat/stream`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ prompt, model, max_turns, session_id: "default_session", attachment: attachedFile || "" })
+                    body: JSON.stringify({
+                        prompt,
+                        model,
+                        max_turns,
+                        session_id: activeSessionId,
+                        attachment: attachedFile || ""
+                    })
                 });
-                const data = await res.json();
-                
-                // Remove thinking bubble
+
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    const tb = document.getElementById("thinkingBubble");
+                    if (tb) tb.remove();
+                    appendMessage("agent", "❌ Error (" + res.status + "): " + (errData.detail || JSON.stringify(errData)), "", model);
+                    return;
+                }
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+                let finalResult = "";
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n\n");
+                    buffer = lines.pop(); // incomplete remainder
+
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (trimmed.startsWith("data: ")) {
+                            try {
+                                const evt = JSON.parse(trimmed.slice(6));
+                                const tbStatus = document.querySelector("#thinkingBubble .tool-status-text");
+                                
+                                if (evt.type === "tool_start" && tbStatus) {
+                                    tbStatus.innerHTML = `<span style="color: #38bdf8; font-weight: 600;">⚡ Executing Tool:</span> <code style="color: #a7f3d0; background: rgba(0,0,0,0.4); padding: 0.2rem 0.4rem; border-radius: 4px;">${evt.data.tool}</code> <span style="font-size: 0.78rem; color: var(--text-muted);">running...</span>`;
+                                } else if (evt.type === "tool_end" && tbStatus) {
+                                    tbStatus.innerHTML = `<span style="color: #10b981; font-weight: 600;">✓ Completed Tool:</span> <code style="color: #a7f3d0; background: rgba(0,0,0,0.4); padding: 0.2rem 0.4rem; border-radius: 4px;">${evt.data.tool}</code>`;
+                                } else if (evt.type === "thought" && tbStatus) {
+                                    const preview = evt.data.length > 75 ? evt.data.substring(0, 75) + "..." : evt.data;
+                                    tbStatus.innerHTML = `<span style="color: #818cf8; font-weight: 600;">💭 Reasoning:</span> <span style="font-size: 0.8rem; color: var(--text-muted);">${preview}</span>`;
+                                } else if (evt.type === "done") {
+                                    finalResult = evt.result || "";
+                                } else if (evt.type === "error") {
+                                    finalResult = "❌ Error: " + (evt.error || evt.data || "Agent execution failed");
+                                }
+                            } catch (e) {
+                                console.debug("SSE Parse skip:", e);
+                            }
+                        }
+                    }
+                }
+
                 const tb = document.getElementById("thinkingBubble");
                 if (tb) tb.remove();
 
-                if (!res.ok) {
-                    appendMessage("agent", "❌ Error (" + res.status + "): " + (data.detail || JSON.stringify(data)));
+                if (finalResult) {
+                    appendMessage("agent", finalResult, "", model);
                 } else {
-                    appendMessage("agent", data.result);
+                    appendMessage("agent", "*(Task execution finished)*", "", model);
                 }
+
+                loadSessionsList();
+                fetchWorkspaceFiles();
             } catch (err) {
-                const tb = document.getElementById("thinkingBubble");
-                if (tb) tb.remove();
-                appendMessage("agent", "❌ Network / Execution Error: " + err.message);
+                // Fallback to standard POST in case SSE streaming is blocked
+                try {
+                    const fallbackRes = await fetch(`${API_BASE}/api/task/run`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ prompt, model, max_turns, session_id: activeSessionId, attachment: attachedFile || "" })
+                    });
+                    const tb = document.getElementById("thinkingBubble");
+                    if (tb) tb.remove();
+                    const fbData = await fallbackRes.json();
+                    appendMessage("agent", fbData.result || "Execution completed.", "", model);
+                    loadSessionsList();
+                    fetchWorkspaceFiles();
+                } catch (fallbackErr) {
+                    const tb = document.getElementById("thinkingBubble");
+                    if (tb) tb.remove();
+                    appendMessage("agent", "❌ Network / Execution Error: " + err.message, "", model);
+                }
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = "<span>Send</span> ➔";
+            }
+        }
+
+        // ── Workspace File Explorer & Artifact Viewer Functions ──────────────
+        async function fetchWorkspaceFiles() {
+            try {
+                const res = await fetch(`${API_BASE}/api/workspace/files`);
+                const data = await res.json();
+                allWorkspaceFiles = data.files || [];
+                renderWorkspaceFiles(allWorkspaceFiles);
+            } catch (err) {
+                console.warn("Error fetching workspace files:", err);
+            }
+        }
+
+        let openFolders = new Set([""]); // Root is implicitly empty string, but we just use path prefixes
+
+        function toggleFolder(path) {
+            if (openFolders.has(path)) openFolders.delete(path);
+            else openFolders.add(path);
+            filterWorkspaceFiles();
+        }
+
+        function renderWorkspaceFiles(files) {
+            const container = document.getElementById("workspaceFilesTreeBody");
+            if (!container) return;
+
+            if (!files || files.length === 0) {
+                container.innerHTML = `<div style="text-align: center; padding: 2rem; color: var(--text-muted);">No files found in ~/ollama_workspace/</div>`;
+                return;
+            }
+
+            const typeBadges = {
+                "apk": `<span style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600;">📱 APK</span>`,
+                "image": `<span style="background: rgba(236, 72, 153, 0.2); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.4); padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600;">🖼️ Image</span>`,
+                "video": `<span style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600;">🎬 Video</span>`,
+                "code": `<span style="background: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.4); padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600;">💻 Code</span>`,
+                "file": `<span style="background: rgba(148, 163, 184, 0.2); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.4); padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600;">📄 File</span>`
+            };
+
+            const root = {};
+            files.forEach(f => {
+                // Normalize slashes
+                const parts = f.relative_path.replace(/\\/g, "/").split("/");
+                let current = root;
+                for (let i = 0; i < parts.length - 1; i++) {
+                    if (!current[parts[i]]) current[parts[i]] = {};
+                    current = current[parts[i]];
+                }
+                current[parts[parts.length - 1]] = f;
+            });
+
+            function buildTreeHtml(node, pathPrefix = "") {
+                let html = "";
+                const keys = Object.keys(node).sort((a, b) => {
+                    const aIsFile = !!node[a].relative_path;
+                    const bIsFile = !!node[b].relative_path;
+                    if (aIsFile === bIsFile) return a.localeCompare(b);
+                    return aIsFile ? 1 : -1;
+                });
+
+                keys.forEach(key => {
+                    const item = node[key];
+                    const currentPath = pathPrefix ? `${pathPrefix}/${key}` : key;
+
+                    if (item.relative_path) {
+                        // File Node
+                        const badge = typeBadges[item.type] || typeBadges["file"];
+                        const isPreviewable = item.type === "code" || ["txt", "md", "json", "xml", "py", "java", "gradle", "bat"].includes(item.extension);
+                        const previewBtn = isPreviewable 
+                            ? `<button class="chip" onclick="previewWorkspaceFile('${item.relative_path}')" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; background: rgba(99, 102, 241, 0.15); color: #818cf8;">👁 Preview</button>` 
+                            : "";
+
+                        html += `
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.45rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.02);">
+                                <div style="display: flex; align-items: center; gap: 0.6rem; color: #c7d2fe; font-size: 0.88rem; flex-wrap: wrap;">
+                                    <span style="opacity: 0.7;">📄</span> 
+                                    <span style="font-weight: 500;">${item.name}</span>
+                                    ${badge}
+                                    <span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.2rem;">${item.size_formatted}</span>
+                                    <span style="font-size: 0.75rem; color: var(--text-muted);">${item.modified}</span>
+                                </div>
+                                <div style="display: flex; gap: 0.4rem; align-items: center;">
+                                    ${previewBtn}
+                                    <a href="${item.download_url}" download target="_blank" class="chip" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; background: rgba(16, 185, 129, 0.15); color: #10b981; text-decoration: none;">📥 Download</a>
+                                    <button onclick="deleteWorkspaceFile('${item.relative_path}')" class="chip" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">🗑</button>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        // Folder Node
+                        // If there is an active search, folders are auto-expanded.
+                        const isSearching = (document.getElementById("workspaceSearchInput").value || "").trim().length > 0;
+                        const isOpen = isSearching || openFolders.has(currentPath);
+                        const displayStyle = isOpen ? "block" : "none";
+                        const icon = isOpen ? "📂" : "📁";
+
+                        html += `
+                            <div style="margin-top: 0.2rem;">
+                                <div onclick="toggleFolder('${currentPath}')" style="cursor: pointer; display: flex; align-items: center; gap: 0.5rem; color: #a5b4fc; font-weight: 600; padding: 0.4rem 1rem; user-select: none; border-bottom: 1px solid rgba(255,255,255,0.02); background: rgba(0,0,0,0.1);">
+                                    <span>${icon}</span> ${key}/
+                                </div>
+                                <div style="display: ${displayStyle}; border-left: 1px solid rgba(99, 102, 241, 0.2); margin-left: 1.25rem;">
+                                    ${buildTreeHtml(item, currentPath)}
+                                </div>
+                            </div>
+                        `;
+                    }
+                });
+                return html;
+            }
+
+            container.innerHTML = buildTreeHtml(root);
+        }
+
+        function _globToRegex(pattern) {
+            // Convert glob patterns like *.py, *.apk, report_* to regex
+            const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+            const regexStr = escaped.replace(/\*/g, '.*').replace(/\?/g, '.');
+            try { return new RegExp('^' + regexStr + '$', 'i'); } catch(e) { return null; }
+        }
+
+        function filterWorkspaceFiles() {
+            const query = (document.getElementById("workspaceSearchInput").value || "").toLowerCase().trim();
+            if (!query) {
+                renderWorkspaceFiles(allWorkspaceFiles);
+                return;
+            }
+
+            // Detect glob pattern (contains * or ?)
+            const isGlob = query.includes('*') || query.includes('?');
+            const globRegex = isGlob ? _globToRegex(query) : null;
+
+            const filtered = allWorkspaceFiles.filter(f => {
+                if (globRegex) {
+                    return globRegex.test(f.name.toLowerCase()) || globRegex.test(f.relative_path.toLowerCase());
+                }
+                return f.name.toLowerCase().includes(query) || 
+                       f.relative_path.toLowerCase().includes(query) ||
+                       (f.extension && f.extension.toLowerCase().includes(query));
+            });
+
+            // During search, render as a flat list instead of tree to avoid expanding all folders
+            renderWorkspaceFilesFlat(filtered, query);
+        }
+
+        function renderWorkspaceFilesFlat(files, query) {
+            const container = document.getElementById("workspaceFilesTreeBody");
+            if (!container) return;
+
+            if (!files || files.length === 0) {
+                container.innerHTML = `<div style="text-align: center; padding: 2rem; color: var(--text-muted);">No files matching "${query}"</div>`;
+                return;
+            }
+
+            const typeBadges = {
+                "apk": `<span style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600;">📱 APK</span>`,
+                "image": `<span style="background: rgba(236, 72, 153, 0.2); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.4); padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600;">🖼️ Image</span>`,
+                "video": `<span style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600;">🎬 Video</span>`,
+                "code": `<span style="background: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.4); padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600;">💻 Code</span>`,
+                "file": `<span style="background: rgba(148, 163, 184, 0.2); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.4); padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600;">📄 File</span>`
+            };
+
+            container.innerHTML = `<div style="font-size: 0.78rem; color: var(--text-muted); padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--panel-border);">🔍 ${files.length} file${files.length !== 1 ? 's' : ''} matching "${query}"</div>` + files.map(f => {
+                const badge = typeBadges[f.type] || typeBadges["file"];
+                const isPreviewable = f.type === "code" || ["txt", "md", "json", "xml", "py", "java", "gradle", "bat"].includes(f.extension);
+                const previewBtn = isPreviewable 
+                    ? `<button class="chip" onclick="previewWorkspaceFile('${f.relative_path}')" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; background: rgba(99, 102, 241, 0.15); color: #818cf8;">👁 Preview</button>` 
+                    : "";
+                return `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.45rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.02);">
+                        <div style="display: flex; align-items: center; gap: 0.6rem; color: #c7d2fe; font-size: 0.88rem; flex-wrap: wrap;">
+                            <span style="opacity: 0.7;">📄</span> 
+                            <span style="font-weight: 500;">${f.name}</span>
+                            ${badge}
+                            <span style="font-size: 0.72rem; color: var(--text-muted);">${f.relative_path}</span>
+                            <span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.2rem;">${f.size_formatted}</span>
+                        </div>
+                        <div style="display: flex; gap: 0.4rem; align-items: center;">
+                            ${previewBtn}
+                            <a href="${f.download_url}" download target="_blank" class="chip" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; background: rgba(16, 185, 129, 0.15); color: #10b981; text-decoration: none;">📥 Download</a>
+                            <button onclick="deleteWorkspaceFile('${f.relative_path}')" class="chip" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">🗑</button>
+                        </div>
+                    </div>`;
+            }).join("");
+        }
+
+        async function previewWorkspaceFile(relPath) {
+            try {
+                const res = await fetch(`${API_BASE}/api/workspace/file?path=${encodeURIComponent(relPath)}`);
+                const data = await res.json();
+                document.getElementById("previewModalTitle").innerText = `File Preview: ${relPath}`;
+                document.getElementById("previewModalContent").innerText = data.content || "(No text content)";
+                document.getElementById("filePreviewModal").style.display = "flex";
+            } catch (err) {
+                alert("Could not load preview: " + err.message);
+            }
+        }
+
+        function closePreviewModal() {
+            document.getElementById("filePreviewModal").style.display = "none";
+        }
+
+        async function deleteWorkspaceFile(relPath) {
+            if (!confirm(`Delete '${relPath}' from workspace?`)) return;
+            try {
+                await fetch(`${API_BASE}/api/workspace/file?path=${encodeURIComponent(relPath)}`, { method: "DELETE" });
+                await fetchWorkspaceFiles();
+            } catch (err) {
+                alert("Failed to delete file: " + err.message);
             }
         }
 
@@ -1171,6 +2096,10 @@
             const list = document.getElementById("goalsList");
             // Preserve existing scroll positions of outer container, inner subtask containers, and summary boxes
             const scrollPositions = {};
+            // Preserve follow-up input values and focus state so polling doesn't wipe user typing
+            const inputValues = {};
+            let focusedInputId = null;
+            let focusedCursorPos = 0;
             if (list) {
                 scrollPositions["_main_list"] = list.scrollTop;
                 list.querySelectorAll('[data-subtask-container]').forEach(el => {
@@ -1178,6 +2107,14 @@
                 });
                 list.querySelectorAll('[data-summary-container]').forEach(el => {
                     scrollPositions[el.getAttribute('data-summary-container')] = el.scrollTop;
+                });
+                // Save all follow-up input values
+                list.querySelectorAll('input[id^="followup_input_"]').forEach(el => {
+                    if (el.value) inputValues[el.id] = el.value;
+                    if (document.activeElement === el) {
+                        focusedInputId = el.id;
+                        focusedCursorPos = el.selectionStart || 0;
+                    }
                 });
             }
 
@@ -1326,6 +2263,18 @@
                         el.scrollTop = scrollPositions[sid];
                     }
                 });
+                // Restore follow-up input values and focus
+                Object.keys(inputValues).forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.value = inputValues[id];
+                });
+                if (focusedInputId) {
+                    const el = document.getElementById(focusedInputId);
+                    if (el) {
+                        el.focus();
+                        try { el.setSelectionRange(focusedCursorPos, focusedCursorPos); } catch(e) {}
+                    }
+                }
                 return goals;
             } catch (err) {
                 list.innerHTML = `<div style="color: var(--accent-red);">Failed to load goals.</div>`;
@@ -1474,20 +2423,6 @@
             } finally {
                 input.disabled = false;
                 input.placeholder = "Ask follow-up (e.g. 'Where is the app code file?', 'Add dark mode')...";
-            }
-        }
-
-        async function fetchWorkspaceFiles() {
-            try {
-                const res = await fetch(`${API_BASE}/api/workspace/files`);
-                const data = await res.json();
-                if (!data.files || data.files.length === 0) {
-                    return alert(`📁 Workspace is empty at '${data.workspace_path}'. No files generated yet.`);
-                }
-                const fileListStr = data.files.map(f => `• ${f.relative_path} (${(f.size_bytes / 1024).toFixed(1)} KB)`).join("\n");
-                alert(`📁 Files in Workspace (${data.workspace_path}):\n\n${fileListStr}\n\nAll files are served live at http://localhost:8100/workspace/...`);
-            } catch (err) {
-                alert("Error fetching workspace files: " + err.message);
             }
         }
 
@@ -1732,3 +2667,7 @@
     </script>
 </body>
 </html>
+
+
+
+

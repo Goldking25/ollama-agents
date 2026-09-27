@@ -117,13 +117,13 @@ class SkillRegistry:
         """Check if a matching skill file exists for *goal*; if not, generate & create a new skill file before planning starts."""
         goal_lower = goal.lower().strip()
 
-        # Skip skill generation entirely for short conversational greetings / casual messages
-        conversational_words = {"hello", "hi", "hey", "greetings", "good morning", "good evening", "thanks", "thank you", "who are you"}
-        if len(goal_lower.split()) <= 3 and any(w in goal_lower for w in conversational_words):
+        # Skip skill generation entirely for conversational greetings, casual messages, or short queries
+        conversational_words = {"hello", "hi", "hey", "greetings", "good morning", "good evening", "thanks", "thank you", "who are you", "what is", "help", "ok", "yes", "no", "continue"}
+        if len(goal_lower.split()) <= 6 or any(w in goal_lower for w in conversational_words):
             return Skill(
                 name="ConversationalSkill",
                 description="General conversational response",
-                instructions="Respond politely to conversational greetings or casual queries.",
+                instructions="Respond helpfully and accurately to queries.",
                 required_tools=[],
                 preferred_model=model,
             )
@@ -146,7 +146,7 @@ class SkillRegistry:
         skill = None
         try:
             import ollama
-            client = ollama.Client(timeout=4.0)
+            client = ollama.Client(timeout=30.0)
             prompt = (
                 f"Goal: '{goal}'\n"
                 "You are a Skill Generator. Generate a specialized Skill JSON definition for this goal.\n"

@@ -201,10 +201,12 @@ class Planner:
 
         system = (
             "You are a strategic task planner for a long-horizon autonomous agent. "
-            "Break the goal into a numbered list of SESSIONS — each session is one "
-            "independent, self-contained task an AI agent can complete in ~25 tool calls. "
-            "Each task must:\n"
-            "  - Be independently runnable without the outputs of later tasks\n"
+            "Break the goal into a numbered list of 5-8 FOCUSED, GRANULAR sub-tasks. "
+            "Each sub-task should be small and specific — a single concrete action "
+            "an AI agent can complete in 5-15 tool calls. "
+            "Do NOT create vague macro-tasks like 'gather context' or 'verify output'. "
+            "Each sub-task must:\n"
+            "  - Be a single, specific action (e.g. 'Search the web for X', 'Write file Y with Z content', 'Run command A')\n"
             "  - Produce a concrete, reusable output (data, file, summary)\n"
             "  - Be specific enough to execute without further clarification\n\n"
             f"Required Skills Guidance:\n{skills_block}\n\n"
@@ -217,14 +219,14 @@ class Planner:
         logger.info("Hierarchical planner decomposing: %s (Skills: %s)", goal[:80], required_skills)
         try:
             # Use short 8.0s timeout so goal registration returns quickly without freezing UI
-            short_client = ollama.Client(timeout=8.0)
+            short_client = ollama.Client(host=self.client._client.base_url if hasattr(self.client, '_client') else None, timeout=60.0)
             response = short_client.chat(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": prompt},
                 ],
-                options={"temperature": 0.2, "num_ctx": 2048},
+                options={"temperature": 0.2, "num_ctx": 4096},
             )
             if hasattr(response, "message"):
                 content = response.message.content or ""

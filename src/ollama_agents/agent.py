@@ -9,6 +9,7 @@ New in this version (long-horizon):
 """
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Set
@@ -35,13 +36,64 @@ Thought: <what you conclude>
 ... (repeat as needed)
 Final Answer: <your complete response>
 
-Rules:
+## Relentless Execution & Tenacity Rules (CRITICAL)
+- NEVER TAKE "NO" FOR AN ANSWER. Once assigned a task, you MUST finish it to 100% completion.
+- DO NOT GIVE UP, DO NOT MAKE EXCUSES, AND NEVER PASS THE WORK BACK TO THE USER.
+- NEVER say "I cannot do this", "as an AI I am unable", "you should do it yourself", or "I failed".
+- You are equipped with autonomous capabilities: write_file, read_file, run_terminal, run_python, web_search, build_android_apk, delegate_subagent, and more. Use them proactively.
+- If a tool fails or throws an error, do NOT stop: analyze the error, fix the parameters, rewrite the broken code, and re-execute until it succeeds.
+- If an approach hits a roadblock, pivot immediately to an alternative method.
 - Always start with a Thought before calling a tool.
 - NEVER stop after writing a Thought. A Thought MUST always be immediately accompanied by its corresponding Tool Call.
-- Emit "Final Answer:" only when the entire task is completely fulfilled.
-- If a tool fails, reason about why and try an alternative approach.
+- DO NOT GUESS FILENAMES. When asked about existing files, filenames, or locations, use the `list_workspace_files` tool to see all files in ~/ollama_workspace/. If a file does not exist, do NOT repeatedly guess random filenames.
+- Emit "Final Answer:" ONLY when the entire user task is completely fulfilled, tested, and delivered.
 - When the plan is updated, follow the new steps.
 - IMPORTANT FOR ANDROID & APK REQUESTS: When asked for an Android app, APK file, mobile app, or .apk compilation, you MUST call the `build_android_apk` tool to compile and generate the actual .apk file. Do NOT tell the user to compile it themselves or that you cannot build APKs. You HAVE the `build_android_apk` tool installed.
+"""
+
+# Models that cannot handle native Ollama tool calling (abliterated, fine-tuned, etc.)
+# These models will receive tool descriptions as plain text in the system prompt instead.
+_TEXT_TOOL_MODELS = {
+    "huihui_ai/qwen3.5-abliterated",
+    "mannix/llama3.1-8b-abliterated",
+}
+
+def _is_text_tool_model(model_name: str) -> bool:
+    """Check if a model needs text-based tool injection instead of native tool calling."""
+    name_lower = model_name.lower()
+    # Check exact match or prefix match (for tag variants like :9b, :latest)
+    for blocked in _TEXT_TOOL_MODELS:
+        if name_lower.startswith(blocked.lower()):
+            return True
+    # Auto-detect abliterated models
+    if "abliterated" in name_lower or "uncensored" in name_lower:
+        return True
+    return False
+
+_TEXT_TOOL_FORMAT = """
+## Tool Calling Format (IMPORTANT — you MUST follow this EXACTLY)
+You have access to the following tools. To call a tool, write EXACTLY this format on its own lines:
+
+Action: <tool_name>
+Action Input: <JSON arguments>
+
+Then STOP and wait for the Observation. Do NOT write the observation yourself.
+
+After receiving the observation, continue with another Thought, or provide your final answer:
+Final Answer: <your complete response>
+
+### Available Tools:
+{tool_list}
+
+### Example:
+Thought: I need to write a Python file.
+Action: write_file
+Action Input: {{"path": "hello.py", "content": "print('hello world')"}}
+
+[You will receive an Observation with the result]
+
+Thought: The file was written successfully.
+Final Answer: I created hello.py with a hello world script.
 """
 
 # ─── Reflection prompt ────────────────────────────────────────────────────────
@@ -81,7 +133,11 @@ class Agent:
         self,
         name: str = "AssistantAgent",
         role: str = "General Assistant",
-        instructions: str = "You are a helpful, autonomous AI assistant. Use available tools when necessary to answer questions or complete tasks.",
+        instructions: str = (
+            "You are a relentless, highly capable autonomous AI agent. When given a task or goal, you never take 'No' "
+            "for an answer and will not stop until the job is completely finished. Proactively use all available tools, "
+            "troubleshoot any errors independently, and deliver finished, verified results without making excuses."
+        ),
         model: str = "deepseek-r1:8b",
         tools: Optional[List[Callable]] = None,
         temperature: float = 0.0,
@@ -111,7 +167,7 @@ class Agent:
         self.max_turns = max_turns
         self.stateful = stateful
         self.memory = memory
-        self.client = ollama.Client(host=host)
+        self.client = ollama.Client(host=host, timeout=30.0)
         self.confirm_actions: Set[str] = set(confirm_actions or [])
         self.critic = critic
         self.max_critique_rounds = max_critique_rounds
@@ -123,7 +179,11 @@ class Agent:
 
         self._base_system_prompt = (
             f"You are {self.name}, specialized as a {self.role}.\n"
-            f"Operating Guidelines:\n{instructions.strip()}"
+            f"Operating Guidelines:\n{instructions.strip()}\n\n"
+            "CRITICAL DIRECTIVE: You are aggressive and relentless in accomplishing your goals. "
+            "You WILL NOT take 'No' for an answer, and you WILL NOT stop prematurely. "
+            "If a task is given to you, YOU MUST FINISH IT entirely to completion. "
+            "Keep trying alternative approaches if you hit roadblocks until the task is definitively solved."
         )
 
         self.tools: Dict[str, Tool] = {}
@@ -160,7 +220,23 @@ class Agent:
                     parts.append(lesson)
 
         if self.tools:
-            parts.append(_REACT_INSTRUCTIONS)
+            if _is_text_tool_model(self.model):
+                # Text-based tool injection for models that can't use native tool calling
+                tool_descriptions = []
+                for tool_name, tool_obj in self.tools.items():
+                    params = tool_obj.schema.get("function", {}).get("parameters", {})
+                    props = params.get("properties", {})
+                    required = params.get("required", [])
+                    param_lines = []
+                    for pname, pinfo in props.items():
+                        req_marker = " (required)" if pname in required else " (optional)"
+                        param_lines.append(f"    - {pname}: {pinfo.get('type', 'string')}{req_marker} — {pinfo.get('description', '')}")
+                    params_str = "\n".join(param_lines) if param_lines else "    (no parameters)"
+                    tool_descriptions.append(f"**{tool_name}**: {tool_obj.description}\n  Parameters:\n{params_str}")
+                tool_list_str = "\n\n".join(tool_descriptions)
+                parts.append(_TEXT_TOOL_FORMAT.format(tool_list=tool_list_str))
+            else:
+                parts.append(_REACT_INSTRUCTIONS)
 
         # Inject Distributed Cluster Node Awareness
         try:
@@ -385,6 +461,8 @@ class Agent:
         user_prompt: str,
         max_turns: Optional[int] = None,
         task_id: Optional[str] = None,
+        on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+        images: Optional[List[str]] = None,
     ) -> str:
         """Execute the ReAct loop until Final Answer or max_turns.
 
@@ -394,6 +472,8 @@ class Agent:
             task_id: Unique ID for checkpointing. If a checkpoint exists with
                      this ID, the run resumes from where it left off. On
                      successful completion the checkpoint is deleted.
+            on_event: Optional streaming callback for UI events (tools, thoughts, tokens).
+            images: Optional list of base64-encoded image strings for multimodal vision tasks.
 
         Returns:
             The agent's final answer string.
@@ -403,6 +483,13 @@ class Agent:
                               is kept so the caller can resume.
         """
         limit = max_turns if max_turns is not None else self.max_turns
+
+        def emit(evt_type: str, data: Any) -> None:
+            if on_event:
+                try:
+                    on_event({"type": evt_type, "data": data})
+                except Exception:
+                    pass
 
         # ── Tracking state ────────────────────────────────────────────
         completed_steps: List[str] = []
@@ -434,7 +521,10 @@ class Agent:
                 self.history = [
                     {"role": "system", "content": self._build_system_prompt(task=user_prompt)}
                 ]
-            self.history.append({"role": "user", "content": user_prompt})
+            user_msg: Dict[str, Any] = {"role": "user", "content": user_prompt}
+            if images:
+                user_msg["images"] = images
+            self.history.append(user_msg)
 
             # ── Planner: decompose goal into steps ────────────────────
             if self.planner:
@@ -450,7 +540,10 @@ class Agent:
                         ),
                     })
 
-        tool_schemas = [t.schema for t in self.tools.values()] if self.tools else None
+        # For text-tool models (abliterated/uncensored), tools are described in the system
+        # prompt as text. Don't pass native tool schemas — use text parsing instead.
+        use_native_tools = self.tools and not _is_text_tool_model(self.model)
+        tool_schemas = [t.schema for t in self.tools.values()] if use_native_tools else None
         options = {"temperature": self.temperature, "num_ctx": self.num_ctx}
         last_content = ""
 
@@ -505,8 +598,42 @@ class Agent:
                         raise fallback_err
                 else:
                     raise err
+            except Exception as generic_err:
+                # Catch timeouts and other httpx errors — retry without tools as last resort
+                err_str = str(generic_err).lower()
+                if "timed out" in err_str or "timeout" in err_str or "readtimeout" in err_str:
+                    if tool_schemas:
+                        logger.warning("[%s] Timeout with tools enabled. Retrying without tools...", self.name)
+                        try:
+                            response = self.client.chat(
+                                model=self.model,
+                                messages=self.history,
+                                options=options,
+                            )
+                        except Exception:
+                            raise generic_err
+                    else:
+                        raise generic_err
+                else:
+                    raise generic_err
 
             msg = self._extract_message(response)
+
+            # Smart fallback: if model returned completely empty with tools, retry without tools
+            msg_content = (msg.get("content") or "").strip()
+            msg_tools = msg.get("tool_calls") or []
+            if not msg_content and not msg_tools and tool_schemas:
+                logger.warning("[%s] Empty response with tools enabled. Retrying without tools (chat-only mode)...", self.name)
+                try:
+                    response_fallback = self.client.chat(
+                        model=self.model,
+                        messages=self.history,
+                        options=options,
+                    )
+                    msg = self._extract_message(response_fallback)
+                except Exception as fb_err:
+                    logger.warning("[%s] Chat-only fallback also failed: %s", self.name, fb_err)
+
             self.history.append(msg)
 
             content: str = msg.get("content") or ""
@@ -519,10 +646,19 @@ class Agent:
                 if text_calls:
                     tool_calls_list = text_calls
 
+            # If model returned <think> tags, emit thought event for real-time UI
+            if "<think>" in content:
+                import re
+                think_match = re.search(r"<think>([\s\S]*?)(?:</think>|$)", content)
+                if think_match:
+                    thought_text = think_match.group(1).strip()
+                    emit("thought", thought_text)
+
             # ── Goal-completion detection ──────────────────────────────
             if "Final Answer:" in content:
                 answer = content.split("Final Answer:", 1)[-1].strip()
                 logger.info("[%s] Final Answer at turn %d.", self.name, turn + 1)
+                emit("answer", answer)
 
                 # ── Critic review ──────────────────────────────────────
                 if self.critic:
@@ -587,22 +723,32 @@ class Agent:
                     continue
                 self._thought_nudges = 0
 
-                if content:
+                if stripped_content:
                     if self.memory:
-                        self.memory.save_episode(task=user_prompt[:120], summary=content[:400])
+                        self.memory.save_episode(task=user_prompt[:120], summary=stripped_content[:400])
                     if self.enable_reflection:
-                        self._reflect(user_prompt, content, tool_calls_made, errors)
+                        self._reflect(user_prompt, stripped_content, tool_calls_made, errors)
                     if task_id and self._checkpoint_mgr:
                         self._checkpoint_mgr.delete(task_id)
-                    return content
-                # Empty response — nudge
-                self.history.append({
-                    "role": "user",
-                    "content": (
-                        "Please continue. When done, write 'Final Answer: <your answer>'"
-                    ),
-                })
-                continue
+                    emit("answer", stripped_content)
+                    return stripped_content
+
+                # Empty response — nudge up to 2 times, then return graceful fallback
+                empty_nudges = getattr(self, "_empty_nudges", 0)
+                if empty_nudges < 2 and (turn + 1 < limit):
+                    self._empty_nudges = empty_nudges + 1
+                    logger.warning("[%s] Empty response from model (nudge %d/2). Nudging...", self.name, self._empty_nudges)
+                    self.history.append({
+                        "role": "user",
+                        "content": (
+                            "Please continue. When done, write 'Final Answer: <your answer>'"
+                        ),
+                    })
+                    continue
+                self._empty_nudges = 0
+                msg_fail = "I did not receive a response from the model. Please retry or check that the model is loaded."
+                emit("error", msg_fail)
+                return msg_fail
 
             # ── Execute tool calls ─────────────────────────────────────
             for call in tool_calls_list:
@@ -613,9 +759,27 @@ class Agent:
 
                 logger.info("[%s] Tool: %s(%s)", self.name, fn_name, fn_args)
                 tool_calls_made.append(fn_name)
+                emit("tool_start", {"tool": fn_name, "args": fn_args})
 
-                output = self._execute_tool(fn_name, fn_args)
+                # Anti-hallucination loop guard:
+                try:
+                    call_sig = f"{fn_name}:{json.dumps(fn_args, sort_keys=True, default=str)}"
+                except Exception:
+                    call_sig = f"{fn_name}:{str(fn_args)}"
+                recent_calls = getattr(self, "_recent_tool_signatures", [])
+                recent_calls.append(call_sig)
+                self._recent_tool_signatures = recent_calls[-10:]
+
+                if recent_calls.count(call_sig) >= 3:
+                    output = (
+                        f"[Tool Failure] Repeated identical tool call detected ({fn_name}). "
+                        "You are repeating failed actions. Stop guessing and use list_workspace_files or provide Final Answer."
+                    )
+                else:
+                    output = self._execute_tool(fn_name, fn_args)
+
                 self.history.append({"role": "tool", "content": output})
+                emit("tool_end", {"tool": fn_name, "output": str(output)[:300]})
 
                 # ── Replan on tool failure ─────────────────────────────
                 is_failure = output.startswith("[Tool Failure]") or output.startswith("[Error]")
@@ -657,7 +821,8 @@ class Agent:
                 completed_steps.append(done)
 
         # ── Turn limit reached ─────────────────────────────────────────
-        raise MaxTurnsExceeded(turns=limit, last_output=last_content)
+        out = last_content.strip() if last_content and last_content.strip() else "I have reached the turn limit for this task."
+        raise MaxTurnsExceeded(turns=limit, last_output=out)
 
     # ──────────────────────────────────────────────────────────────────
     # Context compression
@@ -834,3 +999,4 @@ class Agent:
             f"checkpointing={self.enable_checkpointing}, "
             f"reflection={self.enable_reflection})"
         )
+

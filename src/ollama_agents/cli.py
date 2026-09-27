@@ -34,7 +34,8 @@ def run_task(
     """Run a single autonomous task with the agent."""
     console.print(Panel(f"[bold cyan]Task:[/bold cyan] {prompt}\n[dim]Model: {model} | Max turns: {max_turns}[/dim]", title="Ollama Agent", border_style="cyan"))
 
-    agent = Agent(model=model, max_turns=max_turns, verbose=verbose)
+    from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search
+    agent = Agent(model=model, max_turns=max_turns, verbose=verbose, tools=[web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search])
     
     with console.status("[bold green]Agent working on task...[/bold green]", spinner="dots"):
         result = agent.run(prompt)
@@ -59,7 +60,7 @@ def create_goal(
     with console.status("[bold yellow]Decomposing goal into session tasks...[/bold yellow]", spinner="bouncingBar"):
         goal = registry.create_goal(prompt, model=model)
 
-    console.print(f"\n[bold green][SUCCESS] Goal Created![/bold green] (ID: [bold gold1]{goal.goal_id}[/bold gold1])\n")
+    console.print(f"\n[bold green][SUCCESS] Goal Created![/bold green] (ID: [bold gold1]{goal.id}[/bold gold1])\n")
     
     table = Table(title="Goal Tasks", show_header=True, header_style="bold magenta")
     table.add_column("#", style="dim", width=4)
@@ -67,10 +68,10 @@ def create_goal(
     table.add_column("Status", style="yellow")
     
     for idx, t in enumerate(goal.tasks, 1):
-        table.add_row(str(idx), t.title, t.status)
+        table.add_row(str(idx), t.description, t.status)
         
     console.print(table)
-    console.print(f"\nTo execute the first task, run:\n  [bold white]ollama-agents goal run {goal.goal_id}[/bold white]")
+    console.print(f"\nTo execute the first task, run:\n  [bold white]ollama-agents goal run {goal.id}[/bold white]")
 
 
 @goal_app.command(name="list")
@@ -93,7 +94,7 @@ def list_goals():
         completed = sum(1 for t in g.tasks if t.status == "completed")
         total = len(g.tasks)
         pct = int((completed / total) * 100) if total else 0
-        table.add_row(g.goal_id, g.title[:50], f"{pct}% ({completed}/{total})", str(total))
+        table.add_row(g.id, g.description[:50], f"{pct}% ({completed}/{total})", str(total))
 
     console.print(table)
 
@@ -113,19 +114,22 @@ def run_goal(
 
     next_task = next((t for t in goal.tasks if t.status != "completed"), None)
     if not next_task:
-        console.print(f"[bold green][SUCCESS] All tasks for goal '{goal.title}' are already complete![/bold green]")
+        console.print(f"[bold green][SUCCESS] All tasks for goal '{goal.description}' are already complete![/bold green]")
         return
 
-    console.print(Panel(f"[bold yellow]Goal:[/bold yellow] {goal.title}\n[bold cyan]Executing Task ({goal.progress_pct:.0f}% Done):[/bold cyan] {next_task.title}", border_style="yellow"))
+    console.print(Panel(f"[bold yellow]Goal:[/bold yellow] {goal.description}\n[bold cyan]Executing Task ({goal.progress_pct:.0f}% Done):[/bold cyan] {next_task.description}", border_style="yellow"))
 
-    agent = Agent(model=model, max_turns=25)
+    from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search
+    agent = Agent(model=model, max_turns=25, tools=[web_search, get_realtime_market_quote, write_file, read_file, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search])
     
     with console.status("[bold green]Executing task...[/bold green]", spinner="dots"):
-        task_res, goal_status = agent.run_goal(goal_id=goal_id)
+        task_res = agent.run_goal(goal_id=goal_id)
 
     console.print("\n[bold green][SUCCESS] Task Finished![/bold green]\n")
     console.print(Panel(Markdown(task_res), title="Task Result", border_style="green"))
-    console.print(f"\n[bold yellow]Updated Goal Progress:[/bold yellow] {goal_status.progress_pct:.1f}% complete.")
+    updated = registry.load(goal_id)
+    if updated:
+        console.print(f"\n[bold yellow]Updated Goal Progress:[/bold yellow] {updated.progress_pct:.1f}% complete.")
 
 
 @app.command(name="kill-all")

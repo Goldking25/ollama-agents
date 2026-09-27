@@ -103,3 +103,33 @@ def build_android_apk(
     except Exception as e:
         logger.error("Error building Android APK: %s", e)
         return f"Failed to build Android APK: {type(e).__name__}: {e}"
+
+
+def prewarm_gradle_daemon() -> None:
+    """Pre-warm Gradle daemon in background to eliminate first-build startup latency."""
+    try:
+        if not GRADLE_BIN.exists() or not ANDROID_APP_DIR.exists():
+            return
+        local_app_data = os.environ.get("LOCALAPPDATA", "")
+        android_sdk = Path(local_app_data) / "Android" / "Sdk"
+        if not android_sdk.exists():
+            android_sdk = Path("C:/Android/Sdk")
+        env = os.environ.copy()
+        if android_sdk.exists():
+            env["ANDROID_HOME"] = str(android_sdk)
+            env["ANDROID_SDK_ROOT"] = str(android_sdk)
+        adoptium_jdk = Path("C:/Program Files/Eclipse Adoptium/jdk-21.0.6.7-hotspot")
+        if adoptium_jdk.exists():
+            env["JAVA_HOME"] = str(adoptium_jdk)
+
+        logger.info("Pre-warming Gradle daemon in background...")
+        subprocess.Popen(
+            [str(GRADLE_BIN), "-p", str(ANDROID_APP_DIR), "--status"],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception as e:
+        logger.debug("Gradle pre-warm skipped: %s", e)
+

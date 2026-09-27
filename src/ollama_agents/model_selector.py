@@ -43,38 +43,102 @@ def get_installed_ollama_models() -> List[str]:
         return ["deepseek-r1:8b", "llama3.1:latest"]
 
 
+MULTIMODAL_KEYWORDS = ["vision", "vl", "gemma3", "llava", "moondream"]
+
+def is_multimodal_model(model_name: str) -> bool:
+    """Return True if model_name supports multimodal vision (image/video)."""
+    if not model_name:
+        return False
+    m = model_name.lower()
+    return any(k in m for k in MULTIMODAL_KEYWORDS)
+
+
 def select_best_local_model(task_type: str = "reasoning", preferred: Optional[str] = None) -> str:
-    """Select the highest-scoring installed local model for a given task type."""
+    """Select the highest-scoring installed local model for a given task type.
+    
+    Guarantees:
+    - For task_type == 'vision': Any multimodal model (qwen2.5vl, gemma3, llava, moondream)
+      strictly outscores all text-only models (e.g. deepseek-r1, llama3).
+    - If preferred is specified for a vision task, it is only honored if it is multimodal
+      or if no multimodal model is installed.
+    """
     installed = get_installed_ollama_models()
     if not installed:
         return preferred or "deepseek-r1:8b"
 
+    # Modality-aware preference handling
     if preferred and preferred in installed:
-        return preferred
+        if task_type == "vision":
+            has_multimodal = any(is_multimodal_model(m) for m in installed)
+            if is_multimodal_model(preferred) or not has_multimodal:
+                return preferred
+        else:
+            return preferred
 
-    # Score installed models
     best_model = installed[0]
     highest_score = -1
 
     for m in installed:
-        # Match base name
+        if not m:
+            continue
         m_lower = m.lower()
-        score = 50  # default base score
-        
-        if "deepseek-r1" in m_lower:
-            score += 40 if task_type == "reasoning" else 30
-        elif "coder" in m_lower:
-            score += 45 if task_type == "coding" else 20
-        elif "llama3.1" in m_lower:
-            score += 35 if task_type == "general" else 25
-        elif "vision" in m_lower:
-            score += 45 if task_type == "vision" else 10
+
+        # Task-First Scoring Architecture
+        if task_type == "vision":
+            if is_multimodal_model(m_lower):
+                score = 100
+                if any(k in m_lower for k in ["qwen2.5vl", "qwen2.5-vl", "gemma3", "llama3.2-vision"]):
+                    score += 15
+                elif "llava" in m_lower:
+                    score += 10
+                elif "moondream" in m_lower:
+                    score += 5
+            else:
+                score = 10  # Text-only models strictly disqualified from vision priority
+
+        elif task_type == "coding":
+            if any(c in m_lower for c in ["coder", "deepseek-coder", "qwen2.5-coder", "starcoder"]):
+                score = 110
+            elif any(c in m_lower for c in ["qwen2.5", "qwen3.5", "qwen3.8"]):
+                score = 95
+            elif "deepseek-r1" in m_lower:
+                score = 90
+            elif "llama3" in m_lower:
+                score = 80
+            elif is_multimodal_model(m_lower):
+                score = 70
+            else:
+                score = 50
+
+        elif task_type == "reasoning":
+            if any(r in m_lower for r in ["deepseek-r1", "qwq", "-r1"]):
+                score = 110
+            elif any(c in m_lower for c in ["qwen2.5", "qwen3.5", "qwen3.8"]):
+                score = 95
+            elif "llama3" in m_lower:
+                score = 85
+            elif is_multimodal_model(m_lower):
+                score = 75
+            else:
+                score = 50
+
+        else:  # "general" or fallback
+            if "llama3" in m_lower:
+                score = 95
+            elif any(c in m_lower for c in ["qwen2.5", "qwen3.5", "qwen3.8"]):
+                score = 90
+            elif "deepseek-r1" in m_lower:
+                score = 85
+            elif is_multimodal_model(m_lower):
+                score = 80
+            else:
+                score = 50
 
         if score > highest_score:
             highest_score = score
             best_model = m
 
-    logger.info("Selected best local model '%s' for task_type='%s'", best_model, task_type)
+    logger.info("Selected best local model '%s' (score=%d) for task_type='%s'", best_model, highest_score, task_type)
     return best_model
 
 

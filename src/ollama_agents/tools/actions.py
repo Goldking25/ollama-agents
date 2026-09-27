@@ -140,25 +140,58 @@ def write_file(filepath: str, content: str) -> str:
         return f"Error writing file '{filepath}': {type(e).__name__}: {e}"
 
 
+def list_workspace_files(directory: str = "") -> str:
+    """List all files and folders in the workspace directory (~/ollama_workspace/).
+
+    Use this tool to find out what files, APKs, images, or documents exist in the workspace,
+    or to find the exact filename and location of any generated artifact.
+
+    Args:
+        directory: Optional subdirectory inside workspace (default empty for workspace root).
+    """
+    try:
+        clean_dir = directory.strip().lstrip("/\\") if directory else ""
+        base = _safe_path(clean_dir) if clean_dir else WORKSPACE_ROOT
+        if not base.exists():
+            return f"Directory does not exist: {base}"
+        items = []
+        for p in base.rglob("*"):
+            if any(part.startswith(".") for part in p.parts):
+                continue
+            rel = p.relative_to(WORKSPACE_ROOT)
+            kind = "DIR" if p.is_dir() else f"FILE ({p.stat().st_size} bytes)"
+            items.append(f"{rel} [{kind}]")
+        if not items:
+            return f"Workspace is currently empty at {WORKSPACE_ROOT}"
+        return f"Files in workspace ({WORKSPACE_ROOT}):\n" + "\n".join(items[:60])
+    except Exception as e:
+        return f"Error listing workspace files: {e}"
+
+
 def read_file(filepath: str, max_chars: int = 8000) -> str:
     """Read and return the content of a file from the safe workspace.
 
     Args:
-        filepath: Relative path inside the workspace (e.g. 'reports/nvda.md').
+        filepath: Relative path inside the workspace (e.g. 'src/MainActivity.java').
         max_chars: Maximum characters to return (default 8000).
     """
     try:
         path = _safe_path(filepath)
         if not path.exists():
-            return f"File not found: {path}"
+            try:
+                existing = [str(p.relative_to(WORKSPACE_ROOT)) for p in WORKSPACE_ROOT.rglob("*") if p.is_file()][:10]
+                existing_str = ", ".join(existing) if existing else "None"
+            except Exception:
+                existing_str = "None"
+            return f"[Error] File not found: '{path}'. Do not guess filenames! Files currently in workspace: [{existing_str}]. Call list_workspace_files() for full directory."
         content = path.read_text(encoding="utf-8")
         return content[:max_chars] + (
             f"\n\n[Truncated — {len(content)} total chars]" if len(content) > max_chars else ""
         )
     except PermissionError as e:
-        return f"Permission denied: {e}"
+        return f"[Error] Permission denied: {e}"
     except Exception as e:
-        return f"Error reading file '{filepath}': {type(e).__name__}: {e}"
+        return f"[Error] Error reading file '{filepath}': {type(e).__name__}: {e}"
 
 
 def run_terminal(command: str, timeout: int = 30) -> str:

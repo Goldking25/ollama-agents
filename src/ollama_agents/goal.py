@@ -81,6 +81,7 @@ class Goal:
     created: str = field(default_factory=_now)
     updated: str = field(default_factory=_now)
     notes: str = ""
+    model: str = "deepseek-r1:8b"
     final_summary: str = ""
 
     @property
@@ -388,8 +389,11 @@ class GoalRegistry:
         planner = Planner(model=model)
         tasks = planner.hierarchical_decompose(prompt)
         task_descriptions = [t.get("description", str(t)) if isinstance(t, dict) else str(t) for t in tasks]
-        return self.create(
+        goal = self.create(
             description=prompt,
             task_descriptions=task_descriptions if task_descriptions else [prompt],
             agent_name="AutonomousAgent",
         )
+        goal.model = model
+        self._save(goal)
+        return goal

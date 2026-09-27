@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="board_background">#BBADA0</color>
+    <color name="cell_empty">#CDC1B4</color>
+    <color name="text_dark">#776E65</color>
+    <color name="text_light">#F9F6F2</color>
+</resources>

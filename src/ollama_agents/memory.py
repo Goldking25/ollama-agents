@@ -79,10 +79,21 @@ class MemoryStore:
                 role       TEXT NOT NULL,
                 content    TEXT NOT NULL,
                 attachment TEXT DEFAULT '',
+                model      TEXT DEFAULT '',
                 created    TEXT NOT NULL
             );
         """)
         self._conn.commit()
+
+        # Ensure model column exists for existing SQLite tables
+        try:
+            cur.execute("PRAGMA table_info(chat_messages)")
+            cols = [r[1] for r in cur.fetchall()]
+            if "model" not in cols:
+                cur.execute("ALTER TABLE chat_messages ADD COLUMN model TEXT DEFAULT ''")
+                self._conn.commit()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Facts  (key/value store with optional tags)
@@ -177,11 +188,11 @@ class MemoryStore:
     # Chat Messages  (persistent conversation history for Web UI)
     # ------------------------------------------------------------------
 
-    def save_chat_message(self, session_id: str, role: str, content: str, attachment: str = "") -> None:
+    def save_chat_message(self, session_id: str, role: str, content: str, attachment: str = "", model: str = "") -> None:
         """Persist a user or agent message into database."""
         self._conn.execute(
-            "INSERT INTO chat_messages (session_id, role, content, attachment, created) VALUES (?,?,?,?,?)",
-            (session_id, role, content, attachment, _now()),
+            "INSERT INTO chat_messages (session_id, role, content, attachment, model, created) VALUES (?,?,?,?,?,?)",
+            (session_id, role, content, attachment, model, _now()),
         )
         self._conn.commit()
 
@@ -189,7 +200,7 @@ class MemoryStore:
         """Return chronological chat history for a session."""
         cur = self._conn.cursor()
         cur.execute(
-            "SELECT id, role, content, attachment, created FROM chat_messages WHERE session_id = ? ORDER BY id ASC LIMIT ?",
+            "SELECT id, role, content, attachment, created, model FROM chat_messages WHERE session_id = ? ORDER BY id ASC LIMIT ?",
             (session_id, limit),
         )
         rows = cur.fetchall()
@@ -199,7 +210,8 @@ class MemoryStore:
                 "role": r[1],
                 "content": r[2],
                 "attachment": r[3] or "",
-                "created": r[4]
+                "created": r[4],
+                "model": r[5] if len(r) > 5 and r[5] else ""
             }
             for r in rows
         ]
@@ -208,6 +220,31 @@ class MemoryStore:
         """Clear all chat messages for a session."""
         self._conn.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
         self._conn.commit()
+
+    def list_chat_sessions(self) -> List[dict]:
+        """Return all distinct chat sessions with summary statistics and preview title."""
+        cur = self._conn.cursor()
+        cur.execute(
+            """SELECT session_id, count(*), max(created),
+                      (SELECT content FROM chat_messages c2 WHERE c2.session_id = c1.session_id AND c2.role = 'user' ORDER BY c2.id ASC LIMIT 1)
+               FROM chat_messages c1
+               GROUP BY session_id
+               ORDER BY max(created) DESC"""
+        )
+        rows = cur.fetchall()
+        return [
+            {
+                "session_id": r[0],
+                "message_count": r[1],
+                "last_updated": r[2],
+                "title": (r[3][:45] + "...") if (r[3] and len(r[3]) > 45) else (r[3] or r[0]),
+            }
+            for r in rows
+        ]
+
+    def delete_chat_session(self, session_id: str) -> None:
+        """Delete an entire chat session by session_id."""
+        self.clear_chat_history(session_id)
 
     # ------------------------------------------------------------------
     # Helpers for system-prompt injection
