@@ -190,6 +190,13 @@ class Agent:
             "Keep trying alternative approaches if you hit roadblocks until the task is definitively solved."
         )
 
+        # ── System prompt cache ─────────────────────────────────────────
+        # _build_system_prompt() fetches memory, reflections, and cluster
+        # nodes — all slow I/O. Cache the result for each unique task
+        # string so the heavy work only happens ONCE per run() call.
+        self._cached_system_prompt: Optional[str] = None
+        self._cached_system_prompt_task: Optional[str] = None
+
         self.tools: Dict[str, Tool] = {}
         for fn in (tools or []):
             if isinstance(fn, Tool):
@@ -208,7 +215,19 @@ class Agent:
     # ──────────────────────────────────────────────────────────────────
 
     def _build_system_prompt(self, task: str = "") -> str:
-        """Assemble full system prompt including memory, reflections, and ReAct format."""
+        """Assemble full system prompt including memory, reflections, and ReAct format.
+
+        The result is cached per unique task string to avoid repeated I/O
+        (memory fetch, reflection recall, cluster ping) on every turn of the
+        run loop.  The cache is invalidated when a new task string is passed.
+        """
+        # ── Cache hit ────────────────────────────────────────────────────
+        if (
+            self._cached_system_prompt is not None
+            and self._cached_system_prompt_task == task
+        ):
+            return self._cached_system_prompt
+
         parts = [self._base_system_prompt]
 
         if self.memory:
@@ -260,7 +279,13 @@ class Agent:
         except Exception:
             pass
 
-        return "\n".join(parts)
+        result = "\n".join(parts)
+
+        # ── Cache store ──────────────────────────────────────────────────
+        self._cached_system_prompt = result
+        self._cached_system_prompt_task = task
+
+        return result
 
     # ──────────────────────────────────────────────────────────────────
     # State management
@@ -524,7 +549,11 @@ class Agent:
             errors = checkpoint.errors
             start_turn = checkpoint.turn
         else:
-            # Fresh start: Ensure Skill file exists BEFORE doing anything (even before planning)
+            # Fresh start: invalidate system-prompt cache so this task gets a fresh build
+            self._cached_system_prompt = None
+            self._cached_system_prompt_task = None
+
+            # Ensure Skill file exists BEFORE doing anything (even before planning)
             from ollama_agents.skills import SkillRegistry
             skill_reg = SkillRegistry()
             skill_reg.ensure_skill_for_goal(user_prompt, model=self.model)
