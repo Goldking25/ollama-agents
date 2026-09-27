@@ -3,13 +3,16 @@
 A Goal is a high-level intent that may take multiple sessions (hours/days) to complete.
 Each goal has an ordered list of GoalTasks. The agent works through one task per session.
 
-Storage: ~/.ollama_agents/goals/<goal_id>.json
+Storage: ~/.ollama_agents/agent_state.db  (SQLite, WAL mode)
+Legacy JSON files in ~/.ollama_agents/goals/ are automatically migrated on first access.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import sqlite3
+import threading
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -18,7 +21,62 @@ from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-_GOAL_DIR = Path.home() / ".ollama_agents" / "goals"
+_STATE_DIR = Path.home() / ".ollama_agents"
+_GOAL_DIR = _STATE_DIR / "goals"          # kept for legacy JSON migration
+_DB_PATH = _STATE_DIR / "agent_state.db"
+
+# Module-level connection pool (one connection per thread via threading.local)
+_local = threading.local()
+
+
+def _get_conn() -> sqlite3.Connection:
+    """Return a thread-local SQLite connection to agent_state.db with WAL mode."""
+    if not hasattr(_local, "conn") or _local.conn is None:
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA cache_size=-8000")
+        conn.execute("PRAGMA temp_store=MEMORY")
+        conn.row_factory = sqlite3.Row
+        _local.conn = conn
+        _ensure_schema(conn)
+    return _local.conn
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS goals (
+            id            TEXT PRIMARY KEY,
+            description   TEXT NOT NULL,
+            agent_name    TEXT NOT NULL DEFAULT '',
+            status        TEXT NOT NULL DEFAULT 'active',
+            session_count INTEGER NOT NULL DEFAULT 0,
+            created       TEXT NOT NULL,
+            updated       TEXT NOT NULL,
+            notes         TEXT DEFAULT '',
+            model         TEXT DEFAULT 'deepseek-r1:8b',
+            final_summary TEXT DEFAULT ''
+        );
+
+        CREATE TABLE IF NOT EXISTS goal_tasks (
+            id             TEXT NOT NULL,
+            goal_id        TEXT NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+            description    TEXT NOT NULL,
+            status         TEXT NOT NULL DEFAULT 'pending',
+            output         TEXT DEFAULT '',
+            created        TEXT NOT NULL,
+            updated        TEXT NOT NULL,
+            session        INTEGER NOT NULL DEFAULT 0,
+            model_override TEXT DEFAULT NULL,
+            sort_order     INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (id, goal_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_goal_tasks_goal_id ON goal_tasks(goal_id);
+        CREATE INDEX IF NOT EXISTS idx_goals_status       ON goals(status);
+    """)
+    conn.commit()
 
 
 def _now() -> str:
@@ -29,17 +87,7 @@ def _now() -> str:
 
 @dataclass
 class GoalTask:
-    """A single executable unit within a Goal.
-
-    Attributes:
-        id:          Unique task identifier within the goal.
-        description: What the agent needs to accomplish in this task.
-        status:      One of 'pending', 'in_progress', 'completed', 'failed'.
-        output:      The agent's output from this task (stored for future context).
-        created:     ISO timestamp when the task was created.
-        updated:     ISO timestamp of last status change.
-        session:     Which session number completed this task.
-    """
+    """A single executable unit within a Goal."""
     id: str
     description: str
     status: str = "pending"
@@ -60,19 +108,7 @@ class GoalTask:
 
 @dataclass
 class Goal:
-    """A long-horizon task that persists across multiple sessions.
-
-    Attributes:
-        id:            Unique goal identifier.
-        description:   The high-level goal description.
-        agent_name:    Name of the agent responsible for this goal.
-        tasks:         Ordered list of GoalTask objects.
-        status:        One of 'active', 'completed', 'failed', 'paused'.
-        session_count: Number of sessions this goal has been worked on.
-        created:       ISO timestamp of creation.
-        updated:       ISO timestamp of last update.
-        notes:         Free-form notes (used by agent to leave context for next session).
-    """
+    """A long-horizon task that persists across multiple sessions."""
     id: str
     description: str
     agent_name: str
@@ -109,7 +145,6 @@ class Goal:
         return None
 
     def summary(self) -> str:
-        """Build a compact multi-line progress summary."""
         lines = [
             f"Goal: {self.description}",
             f"Status: {self.status}  |  Progress: {self.progress_pct:.0f}%  "
@@ -125,7 +160,6 @@ class Goal:
         return "\n".join(lines)
 
     def context_for_next_session(self) -> str:
-        """Build a context block injected into the agent's prompt at session start."""
         lines = [
             f"## Long-Horizon Goal Context (Session {self.session_count + 1})",
             f"Overall Goal: {self.description}",
@@ -159,37 +193,180 @@ class Goal:
 class GoalRegistry:
     """Manages creation, persistence, and retrieval of Goals.
 
-    Usage::
-
-        registry = GoalRegistry()
-
-        goal = registry.create(
-            goal_id="indbank-research",
-            description="Research IndBank stock for investment decision",
-            task_descriptions=["Fetch price data", "Search news", "Analyse"],
-            agent_name="MarketScout",
-        )
-
-        task = registry.get_next_task("indbank-research")
-        registry.complete_task("indbank-research", task.id, output="Price: ₹210")
-
-        for g in registry.list_active():
-            print(g.summary())
+    All state is stored in ~/.ollama_agents/agent_state.db (SQLite, WAL mode).
+    Legacy JSON files in ~/.ollama_agents/goals/ are automatically migrated on
+    first access so existing goals are never lost.
     """
 
     def __init__(self) -> None:
-        _GOAL_DIR.mkdir(parents=True, exist_ok=True)
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        _get_conn()                  # ensure schema exists
+        self._migrate_json_goals()   # one-time JSON → SQLite migration
 
-    def _path(self, goal_id: str) -> Path:
-        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in goal_id)
-        return _GOAL_DIR / f"{safe}.json"
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _safe_id(goal_id: str) -> str:
+        return "".join(c if c.isalnum() or c in "-_" else "_" for c in goal_id)
+
+    def _save(self, goal: Goal) -> None:
+        """Persist a Goal and all its tasks to SQLite in a single transaction."""
+        goal.updated = _now()
+        conn = _get_conn()
+        with conn:
+            conn.execute(
+                """INSERT INTO goals (id, description, agent_name, status, session_count,
+                        created, updated, notes, model, final_summary)
+                   VALUES (:id,:description,:agent_name,:status,:session_count,
+                           :created,:updated,:notes,:model,:final_summary)
+                   ON CONFLICT(id) DO UPDATE SET
+                       description=excluded.description,
+                       agent_name=excluded.agent_name,
+                       status=excluded.status,
+                       session_count=excluded.session_count,
+                       updated=excluded.updated,
+                       notes=excluded.notes,
+                       model=excluded.model,
+                       final_summary=excluded.final_summary""",
+                {
+                    "id": goal.id,
+                    "description": goal.description,
+                    "agent_name": goal.agent_name,
+                    "status": goal.status,
+                    "session_count": goal.session_count,
+                    "created": goal.created,
+                    "updated": goal.updated,
+                    "notes": goal.notes,
+                    "model": goal.model,
+                    "final_summary": goal.final_summary,
+                },
+            )
+            # Upsert all tasks
+            for idx, task in enumerate(goal.tasks):
+                conn.execute(
+                    """INSERT INTO goal_tasks
+                           (id, goal_id, description, status, output,
+                            created, updated, session, model_override, sort_order)
+                       VALUES (?,?,?,?,?,?,?,?,?,?)
+                       ON CONFLICT(id, goal_id) DO UPDATE SET
+                           description=excluded.description,
+                           status=excluded.status,
+                           output=excluded.output,
+                           updated=excluded.updated,
+                           session=excluded.session,
+                           model_override=excluded.model_override,
+                           sort_order=excluded.sort_order""",
+                    (
+                        task.id, goal.id, task.description, task.status,
+                        task.output or "", task.created, task.updated,
+                        task.session, task.model_override, idx,
+                    ),
+                )
+        logger.debug("Goal saved to SQLite: '%s'", goal.id)
+
+    def _load_from_db(self, goal_id: str) -> Optional[Goal]:
+        conn = _get_conn()
+        row = conn.execute("SELECT * FROM goals WHERE id=?", (goal_id,)).fetchone()
+        if not row:
+            return None
+        task_rows = conn.execute(
+            "SELECT * FROM goal_tasks WHERE goal_id=? ORDER BY sort_order ASC", (goal_id,)
+        ).fetchall()
+        tasks = [
+            GoalTask(
+                id=r["id"],
+                description=r["description"],
+                status=r["status"],
+                output=r["output"] or "",
+                created=r["created"],
+                updated=r["updated"],
+                session=r["session"],
+                model_override=r["model_override"],
+            )
+            for r in task_rows
+        ]
+        return Goal(
+            id=row["id"],
+            description=row["description"],
+            agent_name=row["agent_name"],
+            tasks=tasks,
+            status=row["status"],
+            session_count=row["session_count"],
+            created=row["created"],
+            updated=row["updated"],
+            notes=row["notes"] or "",
+            model=row["model"] or "deepseek-r1:8b",
+            final_summary=row["final_summary"] or "",
+        )
+
+    def _migrate_json_goals(self) -> None:
+        """One-time migration: import any legacy JSON goal files into SQLite."""
+        if not _GOAL_DIR.exists():
+            return
+        conn = _get_conn()
+        for path in _GOAL_DIR.glob("*.json"):
+            if path.suffix != ".json":
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                goal_id = data.get("id", path.stem)
+                # Skip if already in DB
+                if conn.execute("SELECT 1 FROM goals WHERE id=?", (goal_id,)).fetchone():
+                    continue
+                tasks = [GoalTask(**t) for t in data.pop("tasks", [])]
+                goal = Goal(**data, tasks=tasks)
+                self._save(goal)
+                # Rename migrated file so we don't re-import it
+                path.rename(path.with_suffix(".json.migrated"))
+                logger.info("Migrated legacy goal JSON → SQLite: '%s'", goal_id)
+            except Exception as e:
+                logger.warning("Could not migrate goal file %s: %s", path, e)
 
     # ------------------------------------------------------------------
     # CRUD
     # ------------------------------------------------------------------
 
+    def create(
+        self,
+        description: str,
+        task_descriptions: List[str],
+        agent_name: str,
+        goal_id: Optional[str] = None,
+    ) -> Goal:
+        gid = goal_id or f"goal-{uuid.uuid4().hex[:8]}"
+        tasks = [
+            GoalTask(id=f"task-{i+1:03d}", description=desc)
+            for i, desc in enumerate(task_descriptions)
+        ]
+        goal = Goal(id=gid, description=description, agent_name=agent_name, tasks=tasks)
+        self._save(goal)
+        logger.info("Goal created: '%s' with %d tasks.", gid, len(tasks))
+        return goal
+
+    def load(self, goal_id: str) -> Optional[Goal]:
+        """Load a Goal by ID. Returns None if not found."""
+        goal = self._load_from_db(goal_id)
+        if goal is None:
+            logger.warning("Goal '%s' not found in SQLite DB.", goal_id)
+        return goal
+
+    def exists(self, goal_id: str) -> bool:
+        conn = _get_conn()
+        return bool(conn.execute("SELECT 1 FROM goals WHERE id=?", (goal_id,)).fetchone())
+
+    def delete_goal(self, goal_id: str) -> bool:
+        conn = _get_conn()
+        with conn:
+            conn.execute("DELETE FROM goal_tasks WHERE goal_id=?", (goal_id,))
+            cur = conn.execute("DELETE FROM goals WHERE id=?", (goal_id,))
+        deleted = cur.rowcount > 0
+        if deleted:
+            logger.info("Goal deleted from SQLite: '%s'", goal_id)
+        return deleted
+
     def add_followup_task(self, goal_id: str, prompt: str) -> Optional[GoalTask]:
-        """Append a new follow-up task to an existing goal."""
         goal = self.load(goal_id)
         if not goal:
             return None
@@ -203,92 +380,15 @@ class GoalRegistry:
         logger.info("Added follow-up task to goal '%s': %s", goal_id, prompt)
         return new_task
 
-    def create(
-        self,
-        description: str,
-        task_descriptions: List[str],
-        agent_name: str,
-        goal_id: Optional[str] = None,
-    ) -> Goal:
-        """Create and persist a new Goal with the given tasks.
-
-        Args:
-            description:       High-level goal description.
-            task_descriptions: Ordered list of task descriptions.
-            agent_name:        Agent that will work this goal.
-            goal_id:           Optional custom ID. Auto-generated if not provided.
-
-        Returns:
-            The created :class:`Goal` object.
-        """
-        gid = goal_id or f"goal-{uuid.uuid4().hex[:8]}"
-        tasks = [
-            GoalTask(id=f"task-{i+1:03d}", description=desc)
-            for i, desc in enumerate(task_descriptions)
-        ]
-        goal = Goal(id=gid, description=description, agent_name=agent_name, tasks=tasks)
-        self._save(goal)
-        logger.info("Goal created: '%s' with %d tasks.", gid, len(tasks))
-        return goal
-
-    def load(self, goal_id: str) -> Optional[Goal]:
-        """Load a Goal by ID. Returns None if not found."""
-        path = self._path(goal_id)
-        if not path.exists():
-            return None
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            tasks = [GoalTask(**t) for t in data.pop("tasks", [])]
-            goal = Goal(**data, tasks=tasks)
-            return goal
-        except Exception as e:
-            logger.error("Failed to load goal '%s': %s", goal_id, e)
-            return None
-
-    def exists(self, goal_id: str) -> bool:
-        return self._path(goal_id).exists()
-
-    def delete_goal(self, goal_id: str) -> bool:
-        """Delete a goal JSON file from storage. Returns True if deleted, False if not found."""
-        path = self._path(goal_id)
-        if path.exists():
-            try:
-                path.unlink()
-                logger.info("Goal deleted: '%s'", goal_id)
-                return True
-            except Exception as e:
-                logger.error("Failed to delete goal '%s': %s", goal_id, e)
-                return False
-        return False
-
-    def _save(self, goal: Goal) -> None:
-        goal.updated = _now()
-        data = asdict(goal)
-        target_path = self._path(goal.id)
-        temp_path = target_path.with_suffix(".tmp")
-        try:
-            temp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-            temp_path.replace(target_path)
-            logger.debug("Goal saved atomically: '%s'", goal.id)
-        except Exception as e:
-            logger.error("Failed to save goal '%s': %s", goal.id, e)
-            if temp_path.exists():
-                try:
-                    temp_path.unlink()
-                except Exception:
-                    pass
-
     # ------------------------------------------------------------------
     # Task management
     # ------------------------------------------------------------------
 
     def get_next_task(self, goal_id: str) -> Optional[GoalTask]:
-        """Return the next pending or in-progress task for the goal."""
         goal = self.load(goal_id)
         return goal.next_task if goal else None
 
     def start_task(self, goal_id: str, task_id: str, session: int) -> None:
-        """Mark a task as in_progress."""
         goal = self.load(goal_id)
         if not goal:
             return
@@ -301,7 +401,6 @@ class GoalRegistry:
         self._save(goal)
 
     def complete_task(self, goal_id: str, task_id: str, output: str = "") -> None:
-        """Mark a task as completed and store its output."""
         goal = self.load(goal_id)
         if not goal:
             return
@@ -311,43 +410,12 @@ class GoalRegistry:
                 task.output = output[:2000]
                 task.updated = _now()
                 break
-
-        # Auto-complete the goal if all tasks done
         if all(t.is_done for t in goal.tasks):
             goal.status = "completed"
             logger.info("Goal '%s' fully completed!", goal_id)
-
-        self._save(goal)
-
-    def save_final_summary(self, goal_id: str, summary: str) -> None:
-        """Save overall synthesis summary for a completed goal."""
-        goal = self.load(goal_id)
-        if goal:
-            goal.final_summary = summary
-            self._save(goal)
-
-    def reset_task(self, goal_id: str, task_id: str, model_override: Optional[str] = None) -> None:
-        """Reset a failed or completed task to pending, optionally overriding its model."""
-        goal = self.load(goal_id)
-        if not goal:
-            return
-        for task in goal.tasks:
-            if task.id == task_id:
-                task.status = "pending"
-                task.output = None
-                task.updated = _now()
-                if model_override:
-                    task.model_override = model_override
-                try:
-                    from ollama_agents.checkpoint import CheckpointManager
-                    CheckpointManager().delete(f"{goal_id}-{task.id}")
-                except Exception:
-                    pass
-                break
         self._save(goal)
 
     def fail_task(self, goal_id: str, task_id: str, reason: str = "") -> None:
-        """Mark a task as failed."""
         goal = self.load(goal_id)
         if not goal:
             return
@@ -359,15 +427,38 @@ class GoalRegistry:
                 break
         self._save(goal)
 
+    def reset_task(self, goal_id: str, task_id: str, model_override: Optional[str] = None) -> None:
+        goal = self.load(goal_id)
+        if not goal:
+            return
+        for task in goal.tasks:
+            if task.id == task_id:
+                task.status = "pending"
+                task.output = ""
+                task.updated = _now()
+                if model_override:
+                    task.model_override = model_override
+                try:
+                    from ollama_agents.checkpoint import CheckpointManager
+                    CheckpointManager().delete(f"{goal_id}-{task.id}")
+                except Exception:
+                    pass
+                break
+        self._save(goal)
+
     def save_notes(self, goal_id: str, notes: str) -> None:
-        """Save free-form notes for the next session to read."""
         goal = self.load(goal_id)
         if goal:
             goal.notes = notes[:500]
             self._save(goal)
 
+    def save_final_summary(self, goal_id: str, summary: str) -> None:
+        goal = self.load(goal_id)
+        if goal:
+            goal.final_summary = summary
+            self._save(goal)
+
     def increment_session(self, goal_id: str) -> int:
-        """Increment session counter. Returns new session number."""
         goal = self.load(goal_id)
         if not goal:
             return 1
@@ -380,32 +471,28 @@ class GoalRegistry:
     # ------------------------------------------------------------------
 
     def list_all(self) -> List[Goal]:
-        """Return all goals sorted by updated timestamp."""
+        conn = _get_conn()
+        rows = conn.execute(
+            "SELECT id FROM goals ORDER BY updated DESC"
+        ).fetchall()
         goals = []
-        for path in sorted(_GOAL_DIR.glob("*.json"), reverse=True):
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                tasks = [GoalTask(**t) for t in data.pop("tasks", [])]
-                goals.append(Goal(**data, tasks=tasks))
-            except Exception:
-                pass
+        for row in rows:
+            g = self._load_from_db(row["id"])
+            if g:
+                goals.append(g)
         return goals
 
     def list_active(self) -> List[Goal]:
-        """Return only goals with status 'active'."""
         return [g for g in self.list_all() if g.status == "active"]
 
     # ── Convenient Aliases ─────────────────────────────────────────────
     def list_goals(self) -> List[Goal]:
-        """Alias for list_all()."""
         return self.list_all()
 
     def get_goal(self, goal_id: str) -> Optional[Goal]:
-        """Alias for load()."""
         return self.load(goal_id)
 
     def create_goal(self, prompt: str, model: str = "deepseek-r1:8b") -> Goal:
-        """Convenience method to decompose prompt into tasks and create a Goal."""
         from ollama_agents.planner import Planner
         planner = Planner(model=model)
         tasks = planner.hierarchical_decompose(prompt)

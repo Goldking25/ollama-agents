@@ -3,7 +3,8 @@
 Every tool call during a run is checkpointed to disk. If the process crashes,
 the next call to Agent.run() with the same task_id resumes from the last saved state.
 
-Checkpoint location: ~/.ollama_agents/checkpoints/<task_id>.json
+Storage: ~/.ollama_agents/agent_state.db  (SQLite, WAL mode — shared with GoalRegistry)
+Legacy JSON files in ~/.ollama_agents/checkpoints/ are auto-migrated on first access.
 """
 
 from __future__ import annotations
@@ -16,24 +17,38 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-_CHECKPOINT_DIR = Path.home() / ".ollama_agents" / "checkpoints"
+_CHECKPOINT_DIR = Path.home() / ".ollama_agents" / "checkpoints"  # legacy, kept for migration
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _get_conn():
+    """Reuse the module-level connection from goal.py (same DB, same WAL session)."""
+    from ollama_agents.goal import _get_conn as _goal_get_conn, _ensure_schema
+    conn = _goal_get_conn()
+    # Ensure checkpoint table exists (idempotent)
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS checkpoints (
+            task_id         TEXT PRIMARY KEY,
+            task            TEXT NOT NULL DEFAULT '',
+            agent_name      TEXT NOT NULL DEFAULT '',
+            turn            INTEGER NOT NULL DEFAULT 0,
+            history_json    TEXT NOT NULL DEFAULT '[]',
+            completed_steps TEXT NOT NULL DEFAULT '[]',
+            remaining_steps TEXT NOT NULL DEFAULT '[]',
+            tool_calls_made TEXT NOT NULL DEFAULT '[]',
+            errors          TEXT NOT NULL DEFAULT '[]',
+            timestamp       TEXT NOT NULL
+        );
+    """)
+    conn.commit()
+    return conn
 
 
 class CheckpointState:
-    """Snapshot of an agent's mid-run state.
-
-    Attributes:
-        task_id:         Unique identifier for this task run.
-        task:            The original goal/prompt.
-        agent_name:      Name of the agent being checkpointed.
-        turn:            The turn number at the time of the checkpoint.
-        history:         Full conversation history up to this point.
-        completed_steps: Steps confirmed completed so far.
-        remaining_steps: Steps still to be executed.
-        tool_calls_made: Log of all tool names called so far.
-        errors:          Log of tool errors encountered.
-        timestamp:       ISO-8601 UTC timestamp of last save.
-    """
+    """Snapshot of an agent's mid-run state."""
 
     def __init__(
         self,
@@ -81,51 +96,111 @@ class CheckpointState:
 class CheckpointManager:
     """Manages saving, loading, and deleting agent checkpoints.
 
-    Usage::
+    Checkpoints are stored in the shared ~/.ollama_agents/agent_state.db SQLite
+    database with WAL mode enabled — no more per-file JSON writes that block
+    concurrent readers.  The public API is identical to the old file-based version.
 
-        mgr = CheckpointManager()
-
-        # Save state after each tool call
-        mgr.save(state)
-
-        # On next run: check for existing checkpoint
-        state = mgr.load("my-task-id")
-        if state:
-            print(f"Resuming from turn {state.turn}")
-
-        # Clean up on success
-        mgr.delete("my-task-id")
-
-        # List all in-progress tasks
-        for cp in mgr.list_checkpoints():
-            print(cp["task_id"], cp["timestamp"])
+    Legacy JSON files in ~/.ollama_agents/checkpoints/ are migrated on first use.
     """
 
     def __init__(self) -> None:
-        _CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+        _get_conn()   # ensure table schema exists
+        self._migrate_json_checkpoints()
 
-    def _path(self, task_id: str) -> Path:
-        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in task_id)
-        return _CHECKPOINT_DIR / f"{safe}.json"
+    def _migrate_json_checkpoints(self) -> None:
+        """One-time migration: import legacy JSON checkpoint files into SQLite."""
+        if not _CHECKPOINT_DIR.exists():
+            return
+        conn = _get_conn()
+        for path in _CHECKPOINT_DIR.glob("*.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                task_id = data.get("task_id", path.stem)
+                if conn.execute("SELECT 1 FROM checkpoints WHERE task_id=?", (task_id,)).fetchone():
+                    continue
+                conn.execute(
+                    """INSERT OR IGNORE INTO checkpoints
+                       (task_id, task, agent_name, turn, history_json, completed_steps,
+                        remaining_steps, tool_calls_made, errors, timestamp)
+                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        task_id,
+                        data.get("task", ""),
+                        data.get("agent_name", ""),
+                        data.get("turn", 0),
+                        json.dumps(data.get("history", [])),
+                        json.dumps(data.get("completed_steps", [])),
+                        json.dumps(data.get("remaining_steps", [])),
+                        json.dumps(data.get("tool_calls_made", [])),
+                        json.dumps(data.get("errors", [])),
+                        data.get("timestamp", _now()),
+                    ),
+                )
+                conn.commit()
+                path.rename(path.with_suffix(".json.migrated"))
+                logger.info("Migrated legacy checkpoint JSON → SQLite: '%s'", task_id)
+            except Exception as e:
+                logger.warning("Could not migrate checkpoint file %s: %s", path, e)
 
     def save(self, state: CheckpointState) -> None:
-        """Persist *state* to disk. Overwrites any previous checkpoint for the same task_id."""
+        """Persist *state* to SQLite. Overwrites any previous checkpoint for the same task_id."""
         state.timestamp = _now()
-        path = self._path(state.task_id)
+        conn = _get_conn()
         try:
-            path.write_text(json.dumps(state.to_dict(), indent=2), encoding="utf-8")
-            logger.debug("Checkpoint saved: %s (turn %d)", state.task_id, state.turn)
+            with conn:
+                conn.execute(
+                    """INSERT INTO checkpoints
+                           (task_id, task, agent_name, turn, history_json, completed_steps,
+                            remaining_steps, tool_calls_made, errors, timestamp)
+                       VALUES (?,?,?,?,?,?,?,?,?,?)
+                       ON CONFLICT(task_id) DO UPDATE SET
+                           task=excluded.task,
+                           agent_name=excluded.agent_name,
+                           turn=excluded.turn,
+                           history_json=excluded.history_json,
+                           completed_steps=excluded.completed_steps,
+                           remaining_steps=excluded.remaining_steps,
+                           tool_calls_made=excluded.tool_calls_made,
+                           errors=excluded.errors,
+                           timestamp=excluded.timestamp""",
+                    (
+                        state.task_id,
+                        state.task,
+                        state.agent_name,
+                        state.turn,
+                        json.dumps(state.history),
+                        json.dumps(state.completed_steps),
+                        json.dumps(state.remaining_steps),
+                        json.dumps(state.tool_calls_made),
+                        json.dumps(state.errors),
+                        state.timestamp,
+                    ),
+                )
+            logger.debug("Checkpoint saved to SQLite: %s (turn %d)", state.task_id, state.turn)
         except Exception as e:
             logger.warning("Failed to save checkpoint '%s': %s", state.task_id, e)
 
     def load(self, task_id: str) -> Optional[CheckpointState]:
         """Load the checkpoint for *task_id*, or return None if it doesn't exist."""
-        path = self._path(task_id)
-        if not path.exists():
-            return None
+        conn = _get_conn()
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            state = CheckpointState.from_dict(data)
+            row = conn.execute(
+                "SELECT * FROM checkpoints WHERE task_id=?", (task_id,)
+            ).fetchone()
+            if not row:
+                return None
+            state = CheckpointState(
+                task_id=row["task_id"],
+                task=row["task"],
+                agent_name=row["agent_name"],
+                turn=row["turn"],
+                history=json.loads(row["history_json"]),
+                completed_steps=json.loads(row["completed_steps"]),
+                remaining_steps=json.loads(row["remaining_steps"]),
+                tool_calls_made=json.loads(row["tool_calls_made"]),
+                errors=json.loads(row["errors"]),
+                timestamp=row["timestamp"],
+            )
             logger.info(
                 "Checkpoint loaded: '%s' — resuming from turn %d (completed: %s)",
                 task_id, state.turn, state.completed_steps,
@@ -136,35 +211,37 @@ class CheckpointManager:
             return None
 
     def delete(self, task_id: str) -> None:
-        """Remove the checkpoint file for *task_id* (call on successful completion)."""
-        path = self._path(task_id)
-        if path.exists():
-            path.unlink()
-            logger.info("Checkpoint deleted: '%s' (task completed successfully)", task_id)
+        """Remove the checkpoint for *task_id* (call on successful completion)."""
+        conn = _get_conn()
+        with conn:
+            conn.execute("DELETE FROM checkpoints WHERE task_id=?", (task_id,))
+        logger.info("Checkpoint deleted: '%s' (task completed successfully)", task_id)
 
     def exists(self, task_id: str) -> bool:
-        """Return True if a checkpoint exists for *task_id*."""
-        return self._path(task_id).exists()
+        conn = _get_conn()
+        return bool(conn.execute("SELECT 1 FROM checkpoints WHERE task_id=?", (task_id,)).fetchone())
 
     def list_checkpoints(self) -> List[Dict[str, Any]]:
         """Return a summary list of all saved checkpoints (in-progress tasks)."""
+        conn = _get_conn()
+        rows = conn.execute(
+            "SELECT task_id, agent_name, turn, timestamp, task, completed_steps, remaining_steps "
+            "FROM checkpoints ORDER BY timestamp ASC"
+        ).fetchall()
         summaries = []
-        for path in sorted(_CHECKPOINT_DIR.glob("*.json")):
+        for row in rows:
             try:
-                data = json.loads(path.read_text(encoding="utf-8"))
+                completed = json.loads(row["completed_steps"])
+                remaining = json.loads(row["remaining_steps"])
                 summaries.append({
-                    "task_id": data.get("task_id", path.stem),
-                    "agent_name": data.get("agent_name", "?"),
-                    "turn": data.get("turn", 0),
-                    "timestamp": data.get("timestamp", "?"),
-                    "task_preview": data.get("task", "")[:80],
-                    "completed_steps": len(data.get("completed_steps", [])),
-                    "remaining_steps": len(data.get("remaining_steps", [])),
+                    "task_id": row["task_id"],
+                    "agent_name": row["agent_name"],
+                    "turn": row["turn"],
+                    "timestamp": row["timestamp"],
+                    "task_preview": (row["task"] or "")[:80],
+                    "completed_steps": len(completed),
+                    "remaining_steps": len(remaining),
                 })
             except Exception:
                 pass
         return summaries
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

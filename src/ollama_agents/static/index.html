@@ -870,8 +870,21 @@
                 clusterSocket.onmessage = function(event) {
                     try {
                         const payload = JSON.parse(event.data);
+
                         if (payload.type === "cluster_status" && payload.data) {
                             updateClusterBadgeUI(payload.data);
+                        }
+
+                        if (payload.type === "system_stats" && payload.data) {
+                            applySystemStats(payload.data);
+                        }
+
+                        if (payload.type === "goals_update" && payload.data) {
+                            // Only silently refresh goals if the goals tab is active
+                            if (document.getElementById("goalsTab") &&
+                                document.getElementById("goalsTab").style.display !== "none") {
+                                renderGoalsFromWS(payload.data);
+                            }
                         }
                     } catch (e) {}
                 };
@@ -2809,13 +2822,47 @@
             }, 3000);
         }
 
-        // Initial Load & Timers
+        // ── WebSocket-driven stat updater (no polling needed) ──────────────────
+        function applySystemStats(data) {
+            const ramEl = document.getElementById("ramPct");
+            const vramEl = document.getElementById("vramPct");
+            const badge = document.getElementById("memoryBadge");
+            if (ramEl) ramEl.innerText = `${data.ram_used_pct}%`;
+            if (data.gpu && data.gpu.gpu_available) {
+                if (vramEl) vramEl.innerText = `${data.gpu.vram_used_pct}%`;
+            } else {
+                if (vramEl) vramEl.innerText = "N/A";
+            }
+            if (badge) {
+                const vramHigh = data.gpu && data.gpu.gpu_available && data.gpu.vram_used_pct >= 90.0;
+                const ramHigh  = data.ram_used_pct >= 85.0;
+                if (ramHigh || vramHigh) {
+                    badge.style.borderColor = "#ef4444";
+                    badge.style.color = "#ef4444";
+                } else {
+                    badge.style.borderColor = "var(--panel-border)";
+                    badge.style.color = "#c7d2fe";
+                }
+            }
+        }
+
+        // ── WebSocket-driven goals renderer ────────────────────────────────────
+        function renderGoalsFromWS(goalsData) {
+            try {
+                if (typeof renderGoalCards === "function") {
+                    renderGoalCards(goalsData);
+                }
+            } catch(e) {}
+        }
+
+        // Initial Load — one HTTP call each to seed data before WS kicks in.
+        // setInterval polling removed: the WebSocket pushes live system_stats
+        // (every 5 s) and goals_update (every 2.5 s) directly from the server.
         fetchChatHistory();
         fetchInstalledModels();
         fetchGoals();
         fetchReflections();
-        fetchSystemStats();
-        setInterval(fetchSystemStats, 5000);
+        fetchSystemStats();   // seed once; WS takes over after first connect
     </script>
 </body>
 </html>

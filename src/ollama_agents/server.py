@@ -58,20 +58,83 @@ PULLING_MODELS: Dict[str, Any] = {}
 import logging
 logger = logging.getLogger(__name__)
 
-# ── WebSocket Real-Time Streaming Endpoint ──────────────────────────────────────
+# ── WebSocket Real-Time Push Endpoint ─────────────────────────────────────────
 @app.websocket("/ws/cluster")
 async def websocket_cluster_stream(websocket: WebSocket):
-    """Bidirectional WebSocket channel for zero-latency cluster status, node discovery, & token streaming."""
+    """Multi-event WebSocket: pushes cluster_status, system_stats, and goals_update
+    so the UI never needs to poll those endpoints with setInterval."""
     await websocket.accept()
     from ollama_agents.cluster import cluster_manager
+    import psutil
+
+    tick = 0   # used to stagger different push intervals on a common loop
     try:
         while True:
-            # Broadcast cluster status frame over WebSocket
-            status = cluster_manager.refresh_cluster_status()
-            await websocket.send_json({"type": "cluster_status", "data": status})
+            # ── Cluster status (every 2.5 s) ─────────────────────────
+            try:
+                status = cluster_manager.refresh_cluster_status()
+                await websocket.send_json({"type": "cluster_status", "data": status})
+            except Exception:
+                pass
+
+            # ── System stats (every 5 s, i.e. every 2nd tick) ────────
+            if tick % 2 == 0:
+                try:
+                    mem = psutil.virtual_memory()
+                    stats: Dict[str, Any] = {
+                        "ram_used_pct": round(mem.percent, 1),
+                        "free_ram_gb": round(mem.available / (1024 ** 3), 2),
+                        "active_agents": len([t for t in __import__("asyncio").all_tasks()
+                                              if "execute_goal" in t.get_name()]),
+                        "gpu": None,
+                    }
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            used = torch.cuda.memory_allocated(0)
+                            total = torch.cuda.get_device_properties(0).total_memory
+                            stats["gpu"] = {
+                                "gpu_available": True,
+                                "vram_used_pct": round(used / total * 100, 1),
+                                "vram_free_gb": round((total - used) / (1024 ** 3), 2),
+                            }
+                    except Exception:
+                        pass
+                    await websocket.send_json({"type": "system_stats", "data": stats})
+                except Exception:
+                    pass
+
+            # ── Goals update (every 3 s, i.e. every ~1.2th tick — approximate with mod 1) ─
+            if tick % 1 == 0:
+                try:
+                    registry = GoalRegistry()
+                    goals = registry.list_all()
+                    goals_payload = []
+                    for g in goals:
+                        goals_payload.append({
+                            "id": g.id,
+                            "description": g.description,
+                            "status": g.status,
+                            "progress_pct": round(g.progress_pct, 1),
+                            "session_count": g.session_count,
+                            "model": g.model,
+                            "updated": g.updated,
+                            "tasks": [
+                                {"id": t.id, "description": t.description,
+                                 "status": t.status, "output": (t.output or "")[:200]}
+                                for t in g.tasks
+                            ],
+                        })
+                    await websocket.send_json({"type": "goals_update", "data": goals_payload})
+                except Exception:
+                    pass
+
+            tick += 1
             await asyncio.sleep(2.5)
+
     except (WebSocketDisconnect, RuntimeError, Exception) as e:
-        logger.debug("WebSocket cluster connection closed: %s", e)
+        logger.debug("WebSocket connection closed: %s", e)
+
 
 # ── API Endpoints ─────────────────────────────────────────────────────────────
 @app.get("/api/cluster/nodes")

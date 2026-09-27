@@ -41,6 +41,12 @@ class MemoryStore:
         self.vector_memory = vector_memory  # optional semantic memory layer
         self._db_path = _get_db_path(agent_name)
         self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+        # Enable WAL mode: concurrent reads + writes without blocking each other.
+        # synchronous=NORMAL gives full crash safety while being much faster than FULL.
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute("PRAGMA cache_size=-8000")   # 8 MB page cache
+        self._conn.execute("PRAGMA temp_store=MEMORY")
         self._setup()
         logger.debug("MemoryStore for '%s' opened at %s", agent_name, self._db_path)
 
