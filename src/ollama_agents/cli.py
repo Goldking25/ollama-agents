@@ -240,9 +240,28 @@ def serve_web(
     port: int = typer.Option(8000, "--port", "-p", help="Port to listen on."),
 ):
     """Launch the Web Dashboard UI."""
+    import asyncio
     import uvicorn
+
+    if sys.platform == "win32":
+        # Suppress harmless Windows IocpProactor/socket reset noise (WinError 64 & WinError 10054)
+        # when browsers abruptly close HTTP keep-alive sockets or WebSocket streams.
+        def _win_asyncio_exception_handler(loop, context):
+            exc = context.get("exception")
+            if isinstance(exc, (OSError, ConnectionResetError)):
+                winerror = getattr(exc, "winerror", None) or getattr(exc, "errno", None)
+                if winerror in (64, 10054):  # ERROR_NETNAME_DELETED, WSAECONNRESET
+                    return  # Harmless disconnect from browser / client reload
+            loop.default_exception_handler(context)
+
+        try:
+            loop = asyncio.get_event_loop()
+            loop.set_exception_handler(_win_asyncio_exception_handler)
+        except Exception:
+            pass
+
     console.print(f"[bold green]Launching Ollama Agents Web UI at http://{host}:{port}[/bold green]")
-    uvicorn.run("ollama_agents.server:app", host=host, port=port, reload=False)
+    uvicorn.run("ollama_agents.server:app", host=host, port=port, reload=False, ws_ping_interval=20, ws_ping_timeout=20)
 
 
 if __name__ == "__main__":

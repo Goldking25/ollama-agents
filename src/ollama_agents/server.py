@@ -698,7 +698,23 @@ def api_run_single_task(req: SingleTaskRequest):
 
 @app.on_event("startup")
 async def on_startup():
-    """Pre-warm Gradle daemon on startup for instant APK builds."""
+    """Startup initialization: silence Windows socket disconnect noise and pre-warm Gradle."""
+    import sys
+    if sys.platform == "win32":
+        try:
+            loop = asyncio.get_running_loop()
+            def _win_suppress_disconnect(loop, context):
+                exc = context.get("exception")
+                if isinstance(exc, (OSError, ConnectionResetError)):
+                    winerror = getattr(exc, "winerror", None) or getattr(exc, "errno", None)
+                    if winerror in (64, 10054):  # ERROR_NETNAME_DELETED, WSAECONNRESET
+                        return  # Silently ignore abrupt browser / client connection resets
+                loop.default_exception_handler(context)
+
+            loop.set_exception_handler(_win_suppress_disconnect)
+        except Exception as e:
+            logger.debug("Failed setting event loop exception handler: %s", e)
+
     try:
         from ollama_agents.tools.android_builder import prewarm_gradle_daemon
         prewarm_gradle_daemon()
