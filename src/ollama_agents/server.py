@@ -58,6 +58,36 @@ PULLING_MODELS: Dict[str, Any] = {}
 import logging
 logger = logging.getLogger(__name__)
 
+# ── Self-Modification: codebase location ──────────────────────────────────────
+import sys as _sys
+CODEBASE_PATH = str(Path(__file__).parent.resolve())   # e.g. .../src/ollama_agents
+CODEBASE_INSTRUCTIONS = f"""
+## 🛠️ Self-Modification Capability
+You can read, edit, and improve YOUR OWN source code. Your codebase is at:
+  {CODEBASE_PATH}
+
+Key source files you may need to edit:
+  {CODEBASE_PATH}/agent.py          — core agent loop & prompting
+  {CODEBASE_PATH}/server.py         — FastAPI server & all API endpoints
+  {CODEBASE_PATH}/memory.py         — SQLite memory store
+  {CODEBASE_PATH}/goal.py           — long-horizon goal registry
+  {CODEBASE_PATH}/checkpoint.py     — run state checkpointing
+  {CODEBASE_PATH}/tools/search.py   — web search tool
+  {CODEBASE_PATH}/tools/comfyui.py  — video generation tool
+  {CODEBASE_PATH}/static/index.html — web dashboard UI
+  {CODEBASE_PATH}/memory_manager.py — VRAM / GC management
+
+Workflow for self-modification:
+  1. Use read_file to inspect the file that needs changing.
+  2. Use write_file to apply the fix (write the complete corrected file).
+  3. Optionally use run_terminal to run: git -C "{CODEBASE_PATH}/../.." add -A && git -C "{CODEBASE_PATH}/../.." commit -m "<message>" && git -C "{CODEBASE_PATH}/../.." push
+  4. Use run_terminal to restart: curl -s -X POST http://localhost:8100/api/system/restart
+  5. The server restarts in ~3 seconds with your fix applied.
+
+IMPORTANT: Only modify files under {CODEBASE_PATH}. Always read before writing.
+"""
+
+
 # ── WebSocket Real-Time Push Endpoint ─────────────────────────────────────────
 @app.websocket("/ws/cluster")
 async def websocket_cluster_stream(websocket: WebSocket):
@@ -260,6 +290,25 @@ def api_restart_server():
     import threading, time
     threading.Thread(target=_shutdown, daemon=True).start()
     return {"status": "restarting", "message": "Server process is restarting..."}
+
+@app.get("/api/codebase/files")
+def api_list_codebase_files():
+    """Return a flat list of all editable source files in the agent codebase."""
+    exts = {".py", ".html", ".js", ".css", ".md", ".bat", ".toml", ".cfg", ".txt"}
+    skip_dirs = {"__pycache__", ".git", ".venv", "venv", "node_modules", ".mypy_cache"}
+    files = []
+    base = Path(CODEBASE_PATH).parent.parent  # repo root
+    for p in sorted(base.rglob("*")):
+        if any(part in skip_dirs for part in p.parts):
+            continue
+        if p.is_file() and p.suffix in exts:
+            try:
+                rel = str(p.relative_to(base)).replace("\\", "/")
+                files.append({"path": rel, "full_path": str(p), "size": p.stat().st_size})
+            except Exception:
+                pass
+    return {"codebase_root": str(base), "files": files}
+
 
 @app.post("/api/models/pull")
 def api_pull_model(req: PullModelRequest, background_tasks: BackgroundTasks):
@@ -594,6 +643,12 @@ def api_run_single_task(req: SingleTaskRequest):
             new_agent = Agent(
                 model=req.model,
                 host=host_url,
+                instructions=(
+                    "You are a relentless, highly capable autonomous AI agent. When given a task or goal, you never take 'No' "
+                    "for an answer and will not stop until the job is completely finished. Proactively use all available tools, "
+                    "troubleshoot any errors independently, and deliver finished, verified results without making excuses."
+                    + CODEBASE_INSTRUCTIONS
+                ),
                 tools=[write_file, read_file, list_workspace_files, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk],
                 memory=memory,
                 stateful=True,
@@ -671,6 +726,12 @@ async def api_chat_stream(req: SingleTaskRequest):
         new_agent = Agent(
             model=req.model,
             host=host_url,
+            instructions=(
+                "You are a relentless, highly capable autonomous AI agent. When given a task or goal, you never take 'No' "
+                "for an answer and will not stop until the job is completely finished. Proactively use all available tools, "
+                "troubleshoot any errors independently, and deliver finished, verified results without making excuses."
+                + CODEBASE_INSTRUCTIONS
+            ),
             tools=[write_file, read_file, list_workspace_files, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk],
             memory=memory,
             stateful=True,

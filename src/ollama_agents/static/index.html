@@ -454,6 +454,51 @@
                             <span>Send</span> ➔
                         </button>
                     </div>
+
+                    <!-- 🛠️ Fix Code quick-action bar -->
+                    <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                        <button onclick="toggleFixCodePanel()" style="background: rgba(251,191,36,0.15); border: 1px solid #fbbf24; color: #fbbf24; border-radius: 8px; padding: 0.4rem 0.9rem; font-size: 0.82rem; cursor: pointer; font-weight: 600;">
+                            🛠️ Fix Code
+                        </button>
+                        <button onclick="sendSample('List all source files in the codebase and give me a brief description of each one.')" style="background: rgba(99,102,241,0.12); border: 1px solid var(--primary); color: #a5b4fc; border-radius: 8px; padding: 0.4rem 0.9rem; font-size: 0.82rem; cursor: pointer;">
+                            📂 Browse Source
+                        </button>
+                        <button onclick="sendSample('Read server.py and explain all the API endpoints it exposes.')" style="background: rgba(99,102,241,0.12); border: 1px solid var(--primary); color: #a5b4fc; border-radius: 8px; padding: 0.4rem 0.9rem; font-size: 0.82rem; cursor: pointer;">
+                            🔍 Audit server.py
+                        </button>
+                        <button onclick="sendSample('Read tools/search.py, identify any issues, fix them, commit the change to git, and restart the server.')" style="background: rgba(99,102,241,0.12); border: 1px solid var(--primary); color: #a5b4fc; border-radius: 8px; padding: 0.4rem 0.9rem; font-size: 0.82rem; cursor: pointer;">
+                            🔧 Fix Search Tool
+                        </button>
+                    </div>
+
+                    <!-- Fix Code expanded panel -->
+                    <div id="fixCodePanel" style="display:none; margin-top:0.6rem; background: rgba(251,191,36,0.07); border: 1px solid #fbbf24; border-radius: 10px; padding: 0.9rem; display:none;">
+                        <div style="font-weight:600; color:#fbbf24; margin-bottom:0.6rem; font-size:0.9rem;">🛠️ Self-Modification — Fix a Source File</div>
+                        <div style="display:flex; gap:0.6rem; flex-wrap:wrap; align-items:flex-end;">
+                            <div style="flex:1; min-width:200px;">
+                                <label style="font-size:0.78rem; color:#94a3b8; display:block; margin-bottom:3px;">Source File</label>
+                                <select id="fixFileSelect" style="width:100%; background:#0d1117; border:1px solid #374151; color:#e2e8f0; border-radius:6px; padding:0.45rem; font-size:0.85rem;">
+                                    <option value="">— loading files… —</option>
+                                </select>
+                            </div>
+                            <div style="flex:2; min-width:260px;">
+                                <label style="font-size:0.78rem; color:#94a3b8; display:block; margin-bottom:3px;">Describe the fix</label>
+                                <input id="fixDescription" type="text" placeholder="e.g. fix the timeout in the search tool, add retry logic"
+                                    style="width:100%; background:#0d1117; border:1px solid #374151; color:#e2e8f0; border-radius:6px; padding:0.45rem; font-size:0.85rem; box-sizing:border-box;">
+                            </div>
+                            <div style="display:flex; gap:0.4rem;">
+                                <label style="display:flex; align-items:center; gap:0.3rem; font-size:0.8rem; color:#94a3b8; cursor:pointer;">
+                                    <input type="checkbox" id="fixAutoCommit" checked style="cursor:pointer;"> Commit to git
+                                </label>
+                                <label style="display:flex; align-items:center; gap:0.3rem; font-size:0.8rem; color:#94a3b8; cursor:pointer; margin-left:0.5rem;">
+                                    <input type="checkbox" id="fixAutoRestart" checked style="cursor:pointer;"> Auto-restart
+                                </label>
+                            </div>
+                            <button onclick="submitCodeFix()" style="background: rgba(251,191,36,0.2); border:1px solid #fbbf24; color:#fbbf24; border-radius:8px; padding:0.5rem 1.1rem; font-weight:600; cursor:pointer; white-space:nowrap;">
+                                ⚡ Apply Fix
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2822,7 +2867,63 @@
             }, 3000);
         }
 
-        // ── WebSocket-driven stat updater (no polling needed) ──────────────────
+        // ── 🛠️ Fix Code panel ─────────────────────────────────────────────────
+        let _codebaseFilesLoaded = false;
+
+        function toggleFixCodePanel() {
+            const panel = document.getElementById("fixCodePanel");
+            const isHidden = panel.style.display === "none" || panel.style.display === "";
+            panel.style.display = isHidden ? "block" : "none";
+            if (isHidden && !_codebaseFilesLoaded) loadCodebaseFiles();
+        }
+
+        async function loadCodebaseFiles() {
+            try {
+                const res = await fetch(`${API_BASE}/api/codebase/files`);
+                const data = await res.json();
+                const sel = document.getElementById("fixFileSelect");
+                sel.innerHTML = '<option value="">— choose a source file —</option>';
+                (data.files || []).forEach(f => {
+                    const opt = document.createElement("option");
+                    opt.value = f.path;
+                    opt.textContent = `${f.path}  (${(f.size/1024).toFixed(1)} KB)`;
+                    sel.appendChild(opt);
+                });
+                _codebaseFilesLoaded = true;
+            } catch(e) {
+                console.warn("Could not load codebase files:", e);
+            }
+        }
+
+        function submitCodeFix() {
+            const file = document.getElementById("fixFileSelect").value.trim();
+            const desc = document.getElementById("fixDescription").value.trim();
+            const commit = document.getElementById("fixAutoCommit").checked;
+            const restart = document.getElementById("fixAutoRestart").checked;
+
+            if (!desc) { alert("Please describe the fix you want to apply."); return; }
+
+            let prompt = "";
+            if (file) {
+                prompt += `Read the source file "${file}" in the codebase. `;
+            } else {
+                prompt += `Identify the relevant source file(s) in the codebase. `;
+            }
+            prompt += `Then: ${desc}. `;
+            prompt += `Use write_file to apply the fix. `;
+            if (commit) {
+                prompt += `After fixing, run: git -C "$(dirname $(dirname $(python -c "import ollama_agents; import os; print(os.path.abspath(ollama_agents.__file__))"))) " add -A && git commit -m "fix: ${desc.replace(/"/g,"'")}" && git push. `;
+            }
+            if (restart) {
+                prompt += `Finally restart the server with: curl -s -X POST http://localhost:8100/api/system/restart`;
+            }
+
+            // Close panel and fire the prompt
+            document.getElementById("fixCodePanel").style.display = "none";
+            document.getElementById("chatInput").value = prompt;
+            sendMessage();
+        }
+
         function applySystemStats(data) {
             const ramEl = document.getElementById("ramPct");
             const vramEl = document.getElementById("vramPct");
