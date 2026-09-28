@@ -472,18 +472,28 @@
                     </div>
 
                     <!-- Fix Code expanded panel -->
-                    <div id="fixCodePanel" style="display:none; margin-top:0.6rem; background: rgba(251,191,36,0.07); border: 1px solid #fbbf24; border-radius: 10px; padding: 0.9rem; display:none;">
-                        <div style="font-weight:600; color:#fbbf24; margin-bottom:0.6rem; font-size:0.9rem;">🛠️ Self-Modification — Fix a Source File</div>
-                        <div style="display:flex; gap:0.6rem; flex-wrap:wrap; align-items:flex-end;">
+                    <div id="fixCodePanel" style="display:none; margin-top:0.6rem; background: rgba(251,191,36,0.07); border: 1px solid #fbbf24; border-radius: 10px; padding: 0.9rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
+                            <div style="font-weight:600; color:#fbbf24; font-size:0.9rem;">🛠️ Self-Modification — Fix Code in Web UI</div>
+                            <div style="display:flex; gap:0.4rem;">
+                                <button type="button" class="chip" onclick="toggleDirectEditorUI()" id="btnToggleDirectEdit" style="background:rgba(99,102,241,0.2); border-color:#818cf8; color:#c7d2fe; font-size:0.75rem;">
+                                    📝 Direct File Editor
+                                </button>
+                                <button type="button" class="chip" onclick="document.getElementById('fixCodePanel').style.display='none'" style="font-size:0.75rem; color:#94a3b8;">✕ Close</button>
+                            </div>
+                        </div>
+
+                        <!-- AI Auto-Fix Controls -->
+                        <div id="fixAiSection" style="display:flex; gap:0.6rem; flex-wrap:wrap; align-items:flex-end;">
                             <div style="flex:1; min-width:200px;">
                                 <label style="font-size:0.78rem; color:#94a3b8; display:block; margin-bottom:3px;">Source File</label>
-                                <select id="fixFileSelect" style="width:100%; background:#0d1117; border:1px solid #374151; color:#e2e8f0; border-radius:6px; padding:0.45rem; font-size:0.85rem;">
+                                <select id="fixFileSelect" onchange="onFixFileSelected(this.value)" style="width:100%; background:#0d1117; border:1px solid #374151; color:#e2e8f0; border-radius:6px; padding:0.45rem; font-size:0.85rem;">
                                     <option value="">— loading files… —</option>
                                 </select>
                             </div>
                             <div style="flex:2; min-width:260px;">
                                 <label style="font-size:0.78rem; color:#94a3b8; display:block; margin-bottom:3px;">Describe the fix</label>
-                                <input id="fixDescription" type="text" placeholder="e.g. fix the timeout in the search tool, add retry logic"
+                                <input id="fixDescription" type="text" placeholder="e.g. add 1024px option in video generation width & height, fix search tool"
                                     style="width:100%; background:#0d1117; border:1px solid #374151; color:#e2e8f0; border-radius:6px; padding:0.45rem; font-size:0.85rem; box-sizing:border-box;">
                             </div>
                             <div style="display:flex; gap:0.4rem;">
@@ -495,8 +505,26 @@
                                 </label>
                             </div>
                             <button onclick="submitCodeFix()" style="background: rgba(251,191,36,0.2); border:1px solid #fbbf24; color:#fbbf24; border-radius:8px; padding:0.5rem 1.1rem; font-weight:600; cursor:pointer; white-space:nowrap;">
-                                ⚡ Apply Fix
+                                ⚡ AI Auto-Fix
                             </button>
+                        </div>
+
+                        <!-- Direct File Editor Sub-Panel -->
+                        <div id="directEditorSection" style="display:none; margin-top:0.8rem; border-top:1px solid rgba(251,191,36,0.2); padding-top:0.8rem;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+                                <span id="directEditorFileLabel" style="font-size:0.82rem; color:#c7d2fe; font-family:monospace;">No file selected</span>
+                                <div style="display:flex; gap:0.4rem;">
+                                    <button class="chip" onclick="reloadDirectEditorFile()" style="font-size:0.75rem;">↻ Reload</button>
+                                    <button class="btn-send" onclick="saveDirectEditorFile()" style="padding:0.25rem 0.7rem; font-size:0.8rem; background:rgba(16,185,129,0.3); border:1px solid #10b981; color:#a7f3d0;">💾 Save File</button>
+                                </div>
+                            </div>
+                            <textarea id="directCodeEditor" rows="14" style="width:100%; box-sizing:border-box; background:#070a13; color:#f1f5f9; border:1px solid rgba(99,102,241,0.3); border-radius:8px; padding:0.75rem; font-family:'JetBrains Mono', Consolas, monospace; font-size:0.85rem; line-height:1.45; white-space:pre; resize:vertical;" placeholder="Select a source file above to view and edit code directly..."></textarea>
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.4rem;">
+                                <span style="font-size:0.75rem; color:var(--text-muted);">Tip: Edit code directly and click <b>💾 Save File</b> to apply changes without needing an LLM.</span>
+                                <label style="display:flex; align-items:center; gap:0.3rem; font-size:0.8rem; color:#94a3b8; cursor:pointer;">
+                                    <input type="checkbox" id="directSaveRestart" checked style="cursor:pointer;"> Restart server after saving
+                                </label>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1951,6 +1979,14 @@
 
                 loadSessionsList();
                 fetchWorkspaceFiles();
+
+                if (window._pendingFixRestart) {
+                    window._pendingFixRestart = false;
+                    appendMessage("agent", "🔄 *Code fix complete! Restarting server in 2 seconds to reload changes...*", "", model);
+                    setTimeout(() => {
+                        restartServerUI(true);
+                    }, 1800);
+                }
             } catch (err) {
                 // Fallback to standard POST in case SSE streaming is blocked
                 try {
@@ -1965,6 +2001,14 @@
                     appendMessage("agent", fbData.result || "Execution completed.", "", model);
                     loadSessionsList();
                     fetchWorkspaceFiles();
+
+                    if (window._pendingFixRestart) {
+                        window._pendingFixRestart = false;
+                        appendMessage("agent", "🔄 *Code fix complete! Restarting server in 2 seconds to reload changes...*", "", model);
+                        setTimeout(() => {
+                            restartServerUI(true);
+                        }, 1800);
+                    }
                 } catch (fallbackErr) {
                     const tb = document.getElementById("thinkingBubble");
                     if (tb) tb.remove();
@@ -2963,12 +3007,14 @@
             }
         }
 
-        async function restartServerUI() {
-            if (!confirm("Restart Ollama Agents Server to reload all Python modules & code changes?")) return;
+        async function restartServerUI(skipConfirm = false) {
+            if (!skipConfirm && !confirm("Restart Ollama Agents Server to reload all Python modules & code changes?")) return;
             try {
                 const res = await fetch(`${API_BASE}/api/system/restart`, { method: "POST" });
                 const data = await res.json();
-                alert("🔄 " + (data.message || "Server process is restarting...") + "\n\nReconnecting and refreshing browser in 3 seconds...");
+                if (!skipConfirm) {
+                    alert("🔄 " + (data.message || "Server process is restarting...") + "\n\nReconnecting and refreshing browser in 3 seconds...");
+                }
             } catch (e) {
                 // Connection drops immediately on server exit code 42
                 console.log("Server restarting...");
@@ -2980,6 +3026,7 @@
 
         // ── 🛠️ Fix Code panel ─────────────────────────────────────────────────
         let _codebaseFilesLoaded = false;
+        let _activeEditorFilePath = "";
 
         function toggleFixCodePanel() {
             const panel = document.getElementById("fixCodePanel");
@@ -3006,6 +3053,101 @@
             }
         }
 
+        async function onFixFileSelected(filepath) {
+            const editorSec = document.getElementById("directEditorSection");
+            if (editorSec && editorSec.style.display === "block" && filepath) {
+                await loadFileIntoDirectEditor(filepath);
+            }
+        }
+
+        async function toggleDirectEditorUI() {
+            const sec = document.getElementById("directEditorSection");
+            const isHidden = sec.style.display === "none" || sec.style.display === "";
+            sec.style.display = isHidden ? "block" : "none";
+            const btn = document.getElementById("btnToggleDirectEdit");
+            if (btn) btn.innerText = isHidden ? "📝 Hide Direct Editor" : "📝 Direct File Editor";
+
+            if (isHidden) {
+                const sel = document.getElementById("fixFileSelect");
+                const path = sel ? sel.value.trim() : "";
+                if (path) {
+                    await loadFileIntoDirectEditor(path);
+                }
+            }
+        }
+
+        async function loadFileIntoDirectEditor(filepath) {
+            _activeEditorFilePath = filepath;
+            const label = document.getElementById("directEditorFileLabel");
+            const editor = document.getElementById("directCodeEditor");
+            if (label) label.innerText = `📄 ${filepath} (Loading...)`;
+            if (editor) editor.value = "Loading file from server...";
+
+            try {
+                const res = await fetch(`${API_BASE}/api/codebase/read?path=${encodeURIComponent(filepath)}`);
+                const data = await res.json();
+                if (res.ok && data.status === "success") {
+                    if (editor) editor.value = data.content;
+                    if (label) label.innerText = `📄 ${filepath} (${(data.size / 1024).toFixed(1)} KB)`;
+                } else {
+                    if (editor) editor.value = `Error loading file: ${data.detail || JSON.stringify(data)}`;
+                    if (label) label.innerText = `❌ Error: ${filepath}`;
+                }
+            } catch (err) {
+                if (editor) editor.value = `Failed to read file: ${err.message}`;
+                if (label) label.innerText = `❌ Failed: ${filepath}`;
+            }
+        }
+
+        async function reloadDirectEditorFile() {
+            const sel = document.getElementById("fixFileSelect");
+            const path = (sel && sel.value.trim()) || _activeEditorFilePath;
+            if (!path) return alert("Select a source file first!");
+            await loadFileIntoDirectEditor(path);
+        }
+
+        async function saveDirectEditorFile() {
+            const sel = document.getElementById("fixFileSelect");
+            const path = (sel && sel.value.trim()) || _activeEditorFilePath;
+            if (!path) return alert("Select a source file first!");
+
+            const editor = document.getElementById("directCodeEditor");
+            if (!editor) return;
+            const content = editor.value;
+
+            const commit = document.getElementById("fixAutoCommit")?.checked;
+            const restart = document.getElementById("directSaveRestart")?.checked;
+            const desc = document.getElementById("fixDescription")?.value.trim() || `update ${path}`;
+
+            const commitMsg = commit ? `fix: ${desc}` : null;
+
+            try {
+                const res = await fetch(`${API_BASE}/api/codebase/save`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        path,
+                        content,
+                        commit_message: commitMsg,
+                        auto_restart: restart
+                    })
+                });
+                const data = await res.json();
+                if (res.ok && data.status === "success") {
+                    if (restart) {
+                        alert(`✓ File saved successfully (${data.bytes_written} bytes)!\n${data.git_output ? 'Git: ' + data.git_output + '\n' : ''}\nRestarting server to reload Python changes in 3 seconds...`);
+                        setTimeout(() => window.location.reload(), 3000);
+                    } else {
+                        alert(`✓ File saved successfully (${data.bytes_written} bytes)!\n${data.git_output ? 'Git: ' + data.git_output : ''}`);
+                    }
+                } else {
+                    alert(`Failed to save file: ${data.detail || JSON.stringify(data)}`);
+                }
+            } catch (err) {
+                alert(`Error saving file: ${err.message}`);
+            }
+        }
+
         function submitCodeFix() {
             const file = document.getElementById("fixFileSelect").value.trim();
             const desc = document.getElementById("fixDescription").value.trim();
@@ -3014,6 +3156,9 @@
 
             if (!desc) { alert("Please describe the fix you want to apply."); return; }
 
+            // Store restart request so sendMessage triggers graceful restart after stream completes
+            window._pendingFixRestart = restart;
+
             let prompt = "";
             if (file) {
                 prompt += `Call read_file("${file}") to examine the code. `;
@@ -3021,13 +3166,11 @@
                 prompt += `Examine the codebase files to find the relevant code. `;
             }
             prompt += `Then implement this fix: ${desc}. `;
-            prompt += `Call write_file("${file || 'target_file'}", "<fixed_content>") to overwrite the file with the complete updated code. `;
+            prompt += `Use replace_in_file("${file || 'target_file'}", "<target_code_snippet>", "<replacement_code_snippet>") to make precise modifications, or write_file if creating or replacing small files. Do NOT try to rewrite entire large files from scratch if replace_in_file can update the section. `;
             if (commit) {
                 prompt += `After updating the file, call run_terminal("git add -A && git commit -m \\"fix: ${desc.replace(/"/g,"'")}\\" && git push"). `;
             }
-            if (restart) {
-                prompt += `Finally, call run_terminal("curl -s -X POST http://localhost:8100/api/system/restart") to restart the server.`;
-            }
+            prompt += `Report the exact changes made clearly.`;
 
             // Close panel and fire the prompt
             document.getElementById("fixCodePanel").style.display = "none";

@@ -52,6 +52,19 @@ class AddNodeRequest(BaseModel):
     host_url: str
     name: Optional[str] = None
 
+class CodebaseSaveRequest(BaseModel):
+    path: str
+    content: str
+    commit_message: Optional[str] = None
+    auto_restart: bool = False
+
+class CodebasePatchRequest(BaseModel):
+    path: str
+    target: str
+    replacement: str
+    commit_message: Optional[str] = None
+    auto_restart: bool = False
+
 # Global active model pull status tracker
 PULLING_MODELS: Dict[str, Any] = {}
 
@@ -79,12 +92,12 @@ Key source files you may need to edit:
 
 Workflow for self-modification:
   1. Use read_file to inspect the file that needs changing.
-  2. Use write_file to apply the fix (write the complete corrected file).
-  3. Optionally use run_terminal to run: git -C "{CODEBASE_PATH}/../.." add -A && git -C "{CODEBASE_PATH}/../.." commit -m "<message>" && git -C "{CODEBASE_PATH}/../.." push
-  4. Use run_terminal to restart: curl -s -X POST http://localhost:8100/api/system/restart
-  5. The server restarts in ~3 seconds with your fix applied.
+  2. Use replace_in_file to apply precise modifications to specific code blocks (or write_file for new or small files).
+     NEVER attempt to rewrite a 1000+ line file with write_file if replace_in_file can update only the targeted lines!
+  3. Optionally use run_terminal to run: git add -A && git commit -m "<message>" && git push
+  4. Note: Server auto-restart is handled automatically after your task finishes. Do NOT call curl /api/system/restart inside your response stream, as that cuts off the connection before you can output your answer.
 
-IMPORTANT: Only modify files under {CODEBASE_PATH}. Always read before writing.
+IMPORTANT: Only modify files under {CODEBASE_PATH} or repository root. Always read before writing.
 """
 
 
@@ -284,12 +297,12 @@ def api_trigger_gc():
 def api_restart_server():
     """Trigger clean server process restart to reload Python modules."""
     def _shutdown():
-        time.sleep(0.5)
+        time.sleep(2.0)
         os._exit(42)  # Exit code 42 triggers start_agent.bat restart loop
 
     import threading, time
     threading.Thread(target=_shutdown, daemon=True).start()
-    return {"status": "restarting", "message": "Server process is restarting..."}
+    return {"status": "restarting", "message": "Server process is restarting in 2 seconds..."}
 
 @app.get("/api/codebase/files")
 def api_list_codebase_files():
@@ -308,6 +321,76 @@ def api_list_codebase_files():
             except Exception:
                 pass
     return {"codebase_root": str(base), "files": files}
+
+@app.get("/api/codebase/read")
+def api_read_codebase_file(path: str):
+    """Read full text of a source file in the codebase."""
+    from ollama_agents.tools.actions import _safe_path
+    try:
+        p = _safe_path(path)
+        if not p.exists() or not p.is_file():
+            raise HTTPException(status_code=404, detail=f"File not found: {path}")
+        content = p.read_text(encoding="utf-8")
+        return {"status": "success", "path": path, "size": len(content), "content": content}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/codebase/save")
+def api_save_codebase_file(req: CodebaseSaveRequest):
+    """Directly save/overwrite a codebase file, with optional Git commit and server reload."""
+    from ollama_agents.tools.actions import _safe_path, run_terminal
+    try:
+        p = _safe_path(req.path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(req.content, encoding="utf-8")
+        
+        git_res = ""
+        if req.commit_message:
+            msg = req.commit_message.replace('"', '\\"')
+            git_res = run_terminal(f'git add -A && git commit -m "{msg}" && git push')
+
+        if req.auto_restart:
+            api_restart_server()
+
+        return {
+            "status": "success",
+            "path": req.path,
+            "bytes_written": len(req.content.encode()),
+            "git_output": git_res,
+            "restarting": req.auto_restart
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/codebase/patch")
+def api_patch_codebase_file(req: CodebasePatchRequest):
+    """Apply a precise target -> replacement patch to a codebase file."""
+    from ollama_agents.tools.actions import replace_in_file, run_terminal
+    try:
+        res = replace_in_file(req.path, req.target, req.replacement)
+        if "[Error]" in res or "[Permission Error]" in res:
+            raise HTTPException(status_code=400, detail=res)
+
+        git_res = ""
+        if req.commit_message:
+            msg = req.commit_message.replace('"', '\\"')
+            git_res = run_terminal(f'git add -A && git commit -m "{msg}" && git push')
+
+        if req.auto_restart:
+            api_restart_server()
+
+        return {
+            "status": "success",
+            "message": res,
+            "git_output": git_res,
+            "restarting": req.auto_restart
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/models/pull")
@@ -426,7 +509,7 @@ def api_run_goal_task(goal_id: str, background_tasks: BackgroundTasks, auto_cont
         ACTIVE_EXECUTIONS[goal_id] = {"status": "running"}
         try:
             from ollama_agents.tools import (
-                web_search, get_realtime_market_quote, write_file, read_file, list_workspace_files,
+                web_search, get_realtime_market_quote, write_file, replace_in_file, read_file, list_workspace_files,
                 run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search,
                 generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui,
                 github_clone_repo, github_create_branch, github_commit_and_push,
@@ -486,7 +569,7 @@ def api_run_goal_task(goal_id: str, background_tasks: BackgroundTasks, auto_cont
                 agent = Agent(
                     model=model_name,
                     host=host_url,
-                    tools=[write_file, read_file, list_workspace_files, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk],
+                    tools=[write_file, replace_in_file, read_file, list_workspace_files, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk],
                     memory=memory,
                     max_turns=120
                 )
@@ -633,7 +716,7 @@ SESSION_AGENTS: Dict[str, Agent] = {}
 def api_run_single_task(req: SingleTaskRequest):
     """Run a single task or conversation message with stateful history persistence."""
     try:
-        from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, read_file, list_workspace_files, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk
+        from ollama_agents.tools import web_search, get_realtime_market_quote, write_file, replace_in_file, read_file, list_workspace_files, run_terminal, run_python, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk
         from ollama_agents.cluster import cluster_manager
 
         session_key = req.session_id or "default_session"
@@ -655,7 +738,7 @@ def api_run_single_task(req: SingleTaskRequest):
                     "troubleshoot any errors independently, and deliver finished, verified results without making excuses."
                     + CODEBASE_INSTRUCTIONS
                 ),
-                tools=[write_file, read_file, list_workspace_files, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk],
+                tools=[write_file, replace_in_file, read_file, list_workspace_files, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk],
                 memory=memory,
                 stateful=True,
                 max_turns=req.max_turns
@@ -728,7 +811,7 @@ async def api_chat_stream(req: SingleTaskRequest):
     import threading
     from ollama_agents.cluster import cluster_manager
     from ollama_agents.tools import (
-        write_file, read_file, list_workspace_files, run_terminal, run_python, web_search,
+        write_file, replace_in_file, read_file, list_workspace_files, run_terminal, run_python, web_search,
         get_realtime_market_quote, delegate_subagent, rag_add_knowledge,
         rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image,
         generate_video_comfyui, github_clone_repo, github_create_branch,
@@ -754,7 +837,7 @@ async def api_chat_stream(req: SingleTaskRequest):
                 "troubleshoot any errors independently, and deliver finished, verified results without making excuses."
                 + CODEBASE_INSTRUCTIONS
             ),
-            tools=[write_file, read_file, list_workspace_files, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk],
+            tools=[write_file, replace_in_file, read_file, list_workspace_files, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk],
             memory=memory,
             stateful=True,
             max_turns=req.max_turns

@@ -167,6 +167,36 @@ def write_file(filepath: str, content: str) -> str:
         return f"Error writing file '{filepath}': {type(e).__name__}: {e}"
 
 
+def replace_in_file(filepath: str, target: str, replacement: str) -> str:
+    """Replace an exact block or snippet of text within a file inside the safe workspace or codebase.
+
+    This is the safest and most reliable way to modify existing code files without having to
+    rewrite large files from scratch.
+
+    Args:
+        filepath: Relative or absolute path to the file (e.g. 'src/ollama_agents/static/index.html' or 'src/ollama_agents/tools/comfyui.py').
+        target: The exact text snippet or block currently in the file to be replaced. Must match existing code exactly.
+        replacement: The new replacement text to insert in place of the target.
+    """
+    try:
+        path = _safe_path(filepath)
+        if not path.exists():
+            return f"[Error] File not found: '{filepath}'. Call list_workspace_files() or check the path."
+        content = path.read_text(encoding="utf-8")
+        if target not in content:
+            return f"[Error] Target text not found in '{filepath}'. Please read the file first to ensure the target matches existing code exactly."
+        
+        count = content.count(target)
+        # If single occurrence, replace it. If multiple, replace first occurrence
+        updated = content.replace(target, replacement, 1) if count > 1 else content.replace(target, replacement)
+        path.write_text(updated, encoding="utf-8")
+        return f"[Success] Successfully replaced snippet in '{filepath}' ({count} occurrence(s) found, snippet updated)."
+    except PermissionError as e:
+        return f"[Permission Error]: {e}"
+    except Exception as e:
+        return f"[Error modifying file '{filepath}']: {type(e).__name__}: {e}"
+
+
 def list_workspace_files(directory: str = "") -> str:
     """List all files and folders in the workspace directory (~/ollama_workspace/).
 
