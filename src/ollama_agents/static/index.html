@@ -3014,17 +3014,17 @@
 
             let prompt = "";
             if (file) {
-                prompt += `Read the source file "${file}" in the codebase. `;
+                prompt += `Call read_file("${file}") to examine the code. `;
             } else {
-                prompt += `Identify the relevant source file(s) in the codebase. `;
+                prompt += `Examine the codebase files to find the relevant code. `;
             }
-            prompt += `Then: ${desc}. `;
-            prompt += `Use write_file to apply the fix. `;
+            prompt += `Then implement this fix: ${desc}. `;
+            prompt += `Call write_file("${file || 'target_file'}", "<fixed_content>") to overwrite the file with the complete updated code. `;
             if (commit) {
-                prompt += `After fixing, run: git -C "$(dirname $(dirname $(python -c "import ollama_agents; import os; print(os.path.abspath(ollama_agents.__file__))"))) " add -A && git commit -m "fix: ${desc.replace(/"/g,"'")}" && git push. `;
+                prompt += `After updating the file, call run_terminal("git add -A && git commit -m \\"fix: ${desc.replace(/"/g,"'")}\\" && git push"). `;
             }
             if (restart) {
-                prompt += `Finally restart the server with: curl -s -X POST http://localhost:8100/api/system/restart`;
+                prompt += `Finally, call run_terminal("curl -s -X POST http://localhost:8100/api/system/restart") to restart the server.`;
             }
 
             // Close panel and fire the prompt

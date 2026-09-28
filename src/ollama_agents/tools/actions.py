@@ -41,14 +41,35 @@ _TERMINAL_BLOCKLIST = [
 ]
 
 
+CODEBASE_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+
 def _safe_path(filepath: str) -> Path:
-    """Resolve *filepath* relative to WORKSPACE_ROOT and verify it stays inside."""
+    """Resolve *filepath* relative to WORKSPACE_ROOT or CODEBASE_ROOT and verify it stays inside."""
     WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
+    p = Path(filepath)
+    # If absolute path pointing inside codebase or workspace, allow it
+    if p.is_absolute():
+        resolved = p.resolve()
+        if str(resolved).startswith(str(CODEBASE_ROOT.resolve())):
+            return resolved
+        if str(resolved).startswith(str(WORKSPACE_ROOT.resolve())):
+            return resolved
+        raise PermissionError(
+            f"Path '{filepath}' escapes the safe workspace '{WORKSPACE_ROOT}' and codebase '{CODEBASE_ROOT}'."
+        )
+
+    # If relative path starts with 'src/' or matches a file in CODEBASE_ROOT
+    if (CODEBASE_ROOT / filepath).exists() or filepath.startswith("src"):
+        resolved = (CODEBASE_ROOT / filepath).resolve()
+        if str(resolved).startswith(str(CODEBASE_ROOT.resolve())):
+            return resolved
+
+    # Default to WORKSPACE_ROOT
     resolved = (WORKSPACE_ROOT / filepath).resolve()
     if not str(resolved).startswith(str(WORKSPACE_ROOT.resolve())):
         raise PermissionError(
-            f"Path '{filepath}' escapes the safe workspace '{WORKSPACE_ROOT}'. "
-            "Only paths inside ~/ollama_workspace/ are allowed."
+            f"Path '{filepath}' escapes the safe workspace '{WORKSPACE_ROOT}'."
         )
     return resolved
 
@@ -220,6 +241,7 @@ def run_terminal(command: str, timeout: int = 30) -> str:
             )
 
     WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
+    target_cwd = str(CODEBASE_ROOT) if lower_cmd.startswith("git ") or "git " in lower_cmd else str(WORKSPACE_ROOT)
     try:
         result = subprocess.run(
             command,
@@ -227,7 +249,7 @@ def run_terminal(command: str, timeout: int = 30) -> str:
             capture_output=True,
             text=True,
             timeout=timeout,
-            cwd=str(WORKSPACE_ROOT),
+            cwd=target_cwd,
         )
         output = result.stdout.strip()
         errors = result.stderr.strip()

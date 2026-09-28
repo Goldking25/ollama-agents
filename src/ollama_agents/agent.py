@@ -375,8 +375,60 @@ class Agent:
                     pass
 
         if not calls:
-            # 4. Action / Action Input regex format (classic ReAct)
-            # e.g.: Action: write_file\nAction Input: {"path": "...", "content": "..."}
+            # 5. Qwen 2.5 / 3.5 special token tool calling format:
+            # <|tool_call_begin|> >read_file: {"filepath": "..."} <|tool_call_end|>
+            # or <|tool_call_begin|> >function<|tool_sep|>run_terminal\npython\n...<|tool_call_end|>
+            qwen_blocks = re.findall(r"<\|tool_call_begin\|>([\s\S]*?)<\|tool_call_end\|>", content)
+            for block in qwen_blocks:
+                b = block.strip()
+                # Extract tool name after '>' or '>function<|tool_sep|>'
+                fn_match = re.search(r">(?:function<\|tool_sep\|>)?\s*([a-zA-Z0-9_-]+)", b)
+                if fn_match:
+                    fn_name = fn_match.group(1).strip()
+                    # Remove the header prefix to isolate the arguments or python code
+                    raw_args_block = b[fn_match.end():].strip()
+                    fn_args = {}
+                    # Try json first
+                    json_m = re.search(r'(\{[\s\S]*\})', raw_args_block)
+                    if json_m:
+                        try:
+                            fn_args = json.loads(json_m.group(1))
+                        except Exception:
+                            pass
+                    # If python code or script string
+                    if not fn_args:
+                        # Extract code if passed as raw text / python snippet
+                        code_lines = raw_args_block
+                        if code_lines.startswith("python"):
+                            code_lines = code_lines[6:].strip()
+                        if fn_name == "run_terminal":
+                            # Check if os.system or terminal command inside
+                            cmd_m = re.search(r"""os\.system\((?:['"]|f['"])([\s\S]*?)(?:['"])\)""", code_lines)
+                            if cmd_m:
+                                fn_args = {"command": cmd_m.group(1).strip()}
+                            else:
+                                fn_args = {"command": code_lines}
+                        elif fn_name == "read_file":
+                            fp_m = re.search(r"""file_path\s*=\s*['"]([^'"]+)['"]""", code_lines)
+                            if fp_m:
+                                fn_args = {"filepath": fp_m.group(1).strip()}
+                            else:
+                                fn_args = {"filepath": code_lines.strip()}
+                        elif fn_name == "write_file":
+                            fp_m = re.search(r"""(?:file_path|path)\s*=\s*['"]([^'"]+)['"]""", code_lines)
+                            cnt_m = re.search(r"""content\s*=\s*['"]([\s\S]*?)['"]""", code_lines)
+                            fn_args = {
+                                "filepath": fp_m.group(1).strip() if fp_m else "output.txt",
+                                "content": cnt_m.group(1) if cnt_m else code_lines
+                            }
+                        else:
+                            fn_args = {"input": code_lines}
+
+                    if not tool_names or fn_name in tool_names:
+                        calls.append({"function": {"name": fn_name, "arguments": fn_args}})
+
+        if not calls:
+            # 6. Action / Action Input regex format (classic ReAct)
             action_match = re.search(r"Action\s*:\s*([a-zA-Z0-9_-]+)[\r\n]+Action\s*Input\s*:\s*([\s\S]+?)(?=(?:\nAction:|\nThought:|\nObservation:|$))", content, re.IGNORECASE)
             if action_match:
                 fn_name = action_match.group(1).strip()
@@ -385,7 +437,6 @@ class Agent:
                     try:
                         fn_args = json.loads(raw_args)
                     except Exception:
-                        # Try to extract just the JSON object if model hallucinated trailing text
                         json_match = re.search(r'(\{[\s\S]*\})', raw_args)
                         if json_match:
                             try:
