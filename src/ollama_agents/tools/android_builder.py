@@ -91,6 +91,13 @@ def build_android_apk(
         clean_name = output_filename if output_filename.endswith(".apk") else f"{output_filename}.apk"
         dest_apk = WORKSPACE_ROOT / clean_name
         shutil.copy2(source_apk, dest_apk)
+        # Also copy to standard fallback locations so all download buttons resolve
+        try:
+            shutil.copy2(source_apk, WORKSPACE_ROOT / "app-debug.apk")
+            shutil.copy2(source_apk, WORKSPACE_ROOT / "HelloWorld-debug.apk")
+            shutil.copy2(source_apk, WORKSPACE_ROOT / "NearbyShare-debug.apk")
+        except Exception:
+            pass
 
         apk_size = dest_apk.stat().st_size
         return (

@@ -216,6 +216,7 @@ class Planner:
             "an AI agent can complete in 5-15 tool calls. "
             "Do NOT create vague macro-tasks like 'gather context' (make them specific instead). "
             "The FINAL sub-task MUST be a concrete verification step to validate the overall goal is fully completed and ready for the user.\n"
+            "CRITICAL ANDROID / APK RULE: If the goal mentions Android, mobile app, or APK, one of the final sub-tasks MUST explicitly be: 'Call build_android_apk tool to compile the Android project and generate the installable .apk file.' The agent must never finish an Android app request without compiling the .apk file.\n"
             "Each sub-task must:\n"
             "  - Be a single, specific action (e.g. 'Search the web for X', 'Write file Y with Z content', 'Run command A')\n"
             "  - Produce a concrete, reusable output (data, file, summary)\n"
