@@ -1152,7 +1152,8 @@ def api_media_generate_video(payload: Dict[str, Any]):
     prompt = payload.get("prompt", "")
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt is required")
-    api_url = payload.get("api_url", "http://127.0.0.1:8000")
+    ckpt_name = payload.get("ckpt_name") or payload.get("model") or "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors"
+    steps = int(payload.get("steps", 25))
     res = generate_video_comfyui(
         prompt=prompt,
         negative_prompt=payload.get("negative_prompt", "blurry, low quality, distorted, static, jittery"),
@@ -1162,7 +1163,9 @@ def api_media_generate_video(payload: Dict[str, Any]):
         fps=int(payload.get("fps", 8)),
         api_url=api_url,
         init_image=payload.get("init_image", None),
-        denoise=float(payload.get("denoise", 0.75))
+        denoise=float(payload.get("denoise", 0.75)),
+        ckpt_name=ckpt_name,
+        steps=steps,
     )
     if "Error" in res or not res.startswith("[ComfyUI Video Generated Successfully]"):
         return {"status": "error", "message": res, "file_path": None, "filename": None, "url": None}

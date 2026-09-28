@@ -30,6 +30,7 @@ async def _generate_video_comfyui_async(
     init_image: Optional[str] = None,
     denoise: float = 0.75,
     ckpt_name: str = "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+    steps: int = 25,
 ) -> str:
     """Async core: submit a ComfyUI job, poll non-blockingly, download result."""
     try:
@@ -103,7 +104,7 @@ async def _generate_video_comfyui_async(
                     "negative": ["6", 1],
                     "latent_image": ["7", 0],
                     "seed": int(time.time()),
-                    "steps": 20,  # 20 steps prevents blurry noise & motion distortion
+                    "steps": max(int(steps), 15),  # 20-30 steps for crisp motion & sharp quality
                     "cfg": 3.5,
                     "sampler_name": "euler",
                     "scheduler": "normal",
@@ -269,6 +270,7 @@ def generate_video_comfyui(
     init_image: Optional[str] = None,
     denoise: float = 0.75,
     ckpt_name: str = "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+    steps: int = 25,
 ) -> str:
     """Generate a video using local ComfyUI API endpoint and save the output MP4/GIF to the workspace.
 
@@ -297,6 +299,7 @@ def generate_video_comfyui(
         init_image=init_image,
         denoise=denoise,
         ckpt_name=ckpt_name,
+        steps=steps,
     )
 
     if loop and loop.is_running():

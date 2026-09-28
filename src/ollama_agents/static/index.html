@@ -826,6 +826,24 @@
                             <input type="text" id="comfyNegPromptInput" placeholder="blurry, low quality, static, jittery, distorted" value="blurry, low quality, distorted, static, jittery">
                         </div>
 
+                        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 0.5rem;">
+                            <div>
+                                <label style="font-size: 0.72rem; color: var(--text-muted);">Video Model Checkpoint:</label>
+                                <select id="comfyModelSelect" style="width: 100%; padding: 0.35rem !important; font-size: 0.78rem !important; background: #0d1117; border: 1px solid #374151; color: #e2e8f0; border-radius: 6px;">
+                                    <option value="ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors" selected>LTX-Video 2.5 (Fast INT8 / 22B Distilled)</option>
+                                    <option value="wan2.1_t2v_1.3B_bf16.safetensors">Wan 2.1 1.3B (Ultra Sharp & Realistic / Light VRAM)</option>
+                                    <option value="wan2.1_t2v_14B_bf16.safetensors">Wan 2.1 14B (Cinema Grade)</option>
+                                    <option value="cogvideox_5b_i2v.safetensors">CogVideoX 5B (Coherent Motion)</option>
+                                    <option value="svd_xt.safetensors">Stable Video Diffusion XT (SVD-XT)</option>
+                                    <option value="hunyuan_video_720_cfgdistill_fp8.safetensors">HunyuanVideo FP8 (High Dynamic Motion)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size: 0.72rem; color: var(--text-muted);">Steps (Quality):</label>
+                                <input type="number" id="comfyStepsInput" value="25" min="10" max="60" style="padding: 0.35rem !important; font-size: 0.78rem !important; width: 100%;">
+                            </div>
+                        </div>
+
                         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem;">
                             <div>
                                 <label style="font-size: 0.72rem; color: var(--text-muted);">Width:</label>
@@ -891,9 +909,34 @@
             <div style="padding: 0.8rem 1.25rem; border-bottom: 1px solid var(--panel-border); display: flex; justify-content: space-between; align-items: center; background: rgba(9, 13, 22, 0.8);">
                 <div style="font-weight: 600; color: #c7d2fe;" id="previewModalTitle">File Preview</div>
                 <button onclick="closePreviewModal()" style="background: none; border: none; color: #ef4444; font-size: 1.2rem; cursor: pointer;">✕</button>
-            </div>
             <div style="flex: 1; overflow: auto; padding: 1.2rem; background: #060911;">
                 <pre id="previewModalContent" style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: #a7f3d0; white-space: pre-wrap; word-break: break-word;"></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Retry Task Modal with Model Selection -->
+    <div id="retryTaskModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+        <div style="background: #0d1117; border: 1px solid var(--panel-border); border-radius: 12px; width: 90%; max-width: 520px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.7);">
+            <div style="padding: 0.9rem 1.25rem; border-bottom: 1px solid var(--panel-border); display: flex; justify-content: space-between; align-items: center; background: rgba(9, 13, 22, 0.9);">
+                <div style="font-weight: 600; color: #c7d2fe; font-size: 1rem;">↻ Retry Sub-Task</div>
+                <button onclick="closeRetryTaskModal()" style="background: none; border: none; color: #ef4444; font-size: 1.2rem; cursor: pointer;">✕</button>
+            </div>
+            <div style="padding: 1.2rem; display: flex; flex-direction: column; gap: 0.9rem; background: #060911;">
+                <div>
+                    <label style="font-size: 0.78rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Sub-Task:</label>
+                    <div id="retryTaskDesc" style="font-size: 0.85rem; color: #e2e8f0; background: rgba(255,255,255,0.03); padding: 0.5rem 0.7rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); max-height: 80px; overflow-y: auto;"></div>
+                </div>
+                <div>
+                    <label style="font-size: 0.78rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Select Model to Execute Task:</label>
+                    <select id="retryModelSelect" style="width: 100%; background: #0d1117; border: 1px solid #374151; color: #e2e8f0; border-radius: 6px; padding: 0.5rem; font-size: 0.85rem;">
+                        <option value="">(Keep Goal Default Model)</option>
+                    </select>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
+                    <button onclick="closeRetryTaskModal()" class="chip" style="padding: 0.4rem 0.8rem;">Cancel</button>
+                    <button onclick="executeRetryTaskWithModel()" class="btn-send" style="padding: 0.4rem 1.1rem; font-size: 0.85rem; background: var(--primary);">↻ Start Task Now</button>
+                </div>
             </div>
         </div>
     </div>
@@ -1327,11 +1370,26 @@
             btn.disabled = true;
             btn.innerText = "⏳ Rendering Video with ComfyUI...";
 
+            const ckptName = document.getElementById('comfyModelSelect')?.value || "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors";
+            const steps = parseInt(document.getElementById('comfyStepsInput')?.value || 25, 10);
+
             try {
                 const res = await fetch(`${API_BASE}/api/media/generate-video`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ prompt, negative_prompt: negPrompt, width, height, frames, fps, api_url: apiUrl, init_image: (document.getElementById('comfyI2VSection').style.display === 'block' ? document.getElementById('comfyI2VPath').value.trim() : null), denoise: (document.getElementById('comfyI2VSection').style.display === 'block' ? parseFloat(document.getElementById('comfyDenoisingInput').value) : 0.75) })
+                    body: JSON.stringify({
+                        prompt,
+                        negative_prompt: negPrompt,
+                        width,
+                        height,
+                        frames,
+                        fps,
+                        api_url: apiUrl,
+                        ckpt_name: ckptName,
+                        steps: steps,
+                        init_image: (document.getElementById('comfyI2VSection').style.display === 'block' ? document.getElementById('comfyI2VPath').value.trim() : null),
+                        denoise: (document.getElementById('comfyI2VSection').style.display === 'block' ? parseFloat(document.getElementById('comfyDenoisingInput').value) : 0.75)
+                    })
                 });
                 const data = await res.json();
                 if (data.status === "success" && data.url) {
@@ -2305,7 +2363,7 @@
                                         ${icon} Session ${idx+1}: ${t.description || t.title}
                                     </span>
                                     <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                        ${t.status === 'failed' ? `<button onclick="retryTask('${g.goal_id}', '${t.id}')" style="background: var(--accent-red); color: white; border: none; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.72rem; cursor: pointer; opacity: 0.8; transition: opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.8'">↻ Retry</button>` : ''}
+                                        <button onclick="openRetryTaskModal('${g.goal_id}', '${t.id}', '${(t.description || t.title || '').replace(/'/g, "\\'")}')" style="background: rgba(99, 102, 241, 0.25); color: #c7d2fe; border: 1px solid rgba(99, 102, 241, 0.5); padding: 0.2rem 0.55rem; border-radius: 4px; font-size: 0.72rem; cursor: pointer; transition: all 0.2s; font-weight: 500;" title="Re-run sub-task with current or different model">↻ Retry</button>
                                         <span style="font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 12px; background: ${badgeBg}; color: ${badgeColor}; font-weight: 600; text-transform: uppercase;">
                                             ${t.status}
                                         </span>
@@ -2453,9 +2511,50 @@
             }
         }
 
-                async function retryTask(goalId, taskId) {
+        let activeRetryGoalId = null;
+        let activeRetryTaskId = null;
+
+        function openRetryTaskModal(goalId, taskId, taskDescription) {
+            activeRetryGoalId = goalId;
+            activeRetryTaskId = taskId;
+
+            const descEl = document.getElementById("retryTaskDesc");
+            if (descEl) descEl.innerText = taskDescription || `Task: ${taskId}`;
+
+            // Populate retryModelSelect from chatModelSelect or goalModelSelect
+            const retrySelect = document.getElementById("retryModelSelect");
+            const sourceSelect = document.getElementById("goalModelSelect") || document.getElementById("chatModelSelect");
+            if (retrySelect && sourceSelect) {
+                retrySelect.innerHTML = '<option value="">(Keep Goal Default Model)</option>' + sourceSelect.innerHTML;
+            }
+
+            const modal = document.getElementById("retryTaskModal");
+            if (modal) modal.style.display = "flex";
+        }
+
+        function closeRetryTaskModal() {
+            activeRetryGoalId = null;
+            activeRetryTaskId = null;
+            const modal = document.getElementById("retryTaskModal");
+            if (modal) modal.style.display = "none";
+        }
+
+        async function executeRetryTaskWithModel() {
+            if (!activeRetryGoalId || !activeRetryTaskId) return;
+            const modelOverride = document.getElementById("retryModelSelect")?.value || "";
+            const gId = activeRetryGoalId;
+            const tId = activeRetryTaskId;
+            closeRetryTaskModal();
+            await retryTask(gId, tId, modelOverride);
+        }
+
+        async function retryTask(goalId, taskId, modelOverride = "") {
             try {
-                const res = await fetch(`${API_BASE}/api/goals/${goalId}/tasks/${taskId}/retry`, { method: "POST" });
+                let url = `${API_BASE}/api/goals/${goalId}/tasks/${taskId}/retry`;
+                if (modelOverride) {
+                    url += `?model_override=${encodeURIComponent(modelOverride)}`;
+                }
+                const res = await fetch(url, { method: "POST" });
                 if (!res.ok) {
                     const data = await res.json();
                     throw new Error(data.detail || data.message || "Failed to retry task");
