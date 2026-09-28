@@ -1391,6 +1391,16 @@
                         denoise: (document.getElementById('comfyI2VSection').style.display === 'block' ? parseFloat(document.getElementById('comfyDenoisingInput').value) : 0.75)
                     })
                 });
+                if (!res.ok) {
+                    let errText = "";
+                    try {
+                        const errJson = await res.json();
+                        errText = errJson.detail || errJson.message || JSON.stringify(errJson);
+                    } catch (_) {
+                        errText = await res.text();
+                    }
+                    throw new Error(`Server returned ${res.status}: ${errText.slice(0, 300)}`);
+                }
                 const data = await res.json();
                 if (data.status === "success" && data.url) {
                     const cont = document.getElementById('comfyResultContainer');

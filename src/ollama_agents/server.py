@@ -1174,6 +1174,7 @@ def api_media_generate_video(payload: Dict[str, Any]):
     prompt = payload.get("prompt", "")
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt is required")
+    api_url = payload.get("api_url", "http://127.0.0.1:8000")
     ckpt_name = payload.get("ckpt_name") or payload.get("model") or "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors"
     steps = int(payload.get("steps", 25))
     res = generate_video_comfyui(
