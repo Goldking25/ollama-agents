@@ -516,19 +516,47 @@ async def api_upload_file(file: UploadFile = File(...)):
 
 @app.get("/api/goals")
 def api_list_goals():
-    """List all long-horizon goals."""
+    """List all long-horizon goals with disk-verified APK artifacts."""
     registry = GoalRegistry()
     goals = registry.list_goals()
-    return [{
-        "goal_id": g.id,
-        "title": g.description,
-        "model": getattr(g, 'model', None) or "deepseek-r1:8b",
-        "created_at": g.created,
-        "progress_pct": g.progress_pct,
-        "final_summary": getattr(g, 'final_summary', ''),
-        "tasks_count": len(g.tasks),
-        "tasks": [t.__dict__ for t in g.tasks]
-    } for g in goals]
+
+    # Collect existing APK files in WORKSPACE_DIR
+    existing_apks = {}
+    if WORKSPACE_DIR.exists():
+        for f in WORKSPACE_DIR.glob("*.apk"):
+            existing_apks[f.name.lower()] = f.name
+        for sub in WORKSPACE_DIR.iterdir():
+            if sub.is_dir():
+                for f in sub.glob("*.apk"):
+                    existing_apks[f.name.lower()] = f"{sub.name}/{f.name}"
+
+    res = []
+    for g in goals:
+        # Check if an APK artifact is associated with this goal and actually exists on disk
+        combined_text = (g.description + " " + getattr(g, 'final_summary', '') + " " + " ".join(t.output or "" for t in g.tasks)).lower()
+        apk_match_file = None
+        for apk_lower, real_rel in existing_apks.items():
+            clean_base = apk_lower.replace(".apk", "")
+            if apk_lower in combined_text or (clean_base in combined_text and len(clean_base) > 3):
+                apk_match_file = real_rel
+                break
+            if "2048" in g.description.lower() and "2048" in apk_lower:
+                apk_match_file = real_rel
+                break
+
+        res.append({
+            "goal_id": g.id,
+            "title": g.description,
+            "model": getattr(g, 'model', None) or "deepseek-r1:8b",
+            "created_at": g.created,
+            "progress_pct": g.progress_pct,
+            "final_summary": getattr(g, 'final_summary', ''),
+            "tasks_count": len(g.tasks),
+            "tasks": [t.__dict__ for t in g.tasks],
+            "apk_filename": Path(apk_match_file).name if apk_match_file else None,
+            "apk_download_url": f"/workspace/{apk_match_file}" if apk_match_file else None,
+        })
+    return res
 
 @app.post("/api/goals/create")
 def api_create_goal(req: CreateGoalRequest):

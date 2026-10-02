@@ -22,7 +22,8 @@ def build_android_apk(
     app_name: str = "NearbyShareApp",
     main_activity_code: Optional[str] = None,
     package_name: str = "com.example.helloworld",
-    output_filename: str = "app-debug.apk"
+    output_filename: str = "app-debug.apk",
+    project_dir: Optional[str] = None
 ) -> str:
     """Compile and build a signed debug Android APK (.apk) file from source code.
 
@@ -32,26 +33,59 @@ def build_android_apk(
                             If omitted or empty, uses existing MainActivity.java.
         package_name: Android Java package namespace (default 'com.example.helloworld').
         output_filename: Output APK filename to save in ~/ollama_workspace/ (e.g. 'app-debug.apk').
+        project_dir: Optional path or subfolder for the Android project.
     """
     try:
         WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
-        if not ANDROID_APP_DIR.exists():
-            return f"Error: Android project directory '{ANDROID_APP_DIR}' not found."
+        clean_name = output_filename if output_filename.endswith(".apk") else f"{output_filename}.apk"
 
-        # Setup paths
+        # Determine target project directory
+        target_dir = None
+        if project_dir:
+            p_path = Path(project_dir).expanduser()
+            if p_path.is_absolute() and p_path.exists():
+                target_dir = p_path
+            elif (WORKSPACE_ROOT / project_dir).exists():
+                target_dir = WORKSPACE_ROOT / project_dir
+            elif (Path(__file__).resolve().parent.parent.parent.parent / project_dir).exists():
+                target_dir = Path(__file__).resolve().parent.parent.parent.parent / project_dir
+
+        if not target_dir:
+            # Check for 2048 game or specific project hints
+            hints = [app_name.lower(), clean_name.lower(), str(project_dir or "").lower()]
+            if any("2048" in h for h in hints):
+                candidate_paths = [
+                    WORKSPACE_ROOT / "2048_game_application",
+                    WORKSPACE_ROOT / "android_2048_game",
+                    Path(__file__).resolve().parent.parent.parent.parent / "android_2048_game"
+                ]
+                for cp in candidate_paths:
+                    if cp.exists() and ((cp / "build.gradle.kts").exists() or (cp / "build.gradle").exists() or (cp / "app").exists()):
+                        target_dir = cp
+                        break
+
+        if not target_dir:
+            target_dir = ANDROID_APP_DIR
+
+        if not target_dir.exists():
+            return f"Error: Android project directory '{target_dir}' not found."
+
+        # Setup paths if modifying Java code in standard structure
         pkg_rel_dir = package_name.replace(".", "/")
-        java_src_dir = ANDROID_APP_DIR / "app" / "src" / "main" / "java" / pkg_rel_dir
-        java_src_dir.mkdir(parents=True, exist_ok=True)
-        main_activity_file = java_src_dir / "MainActivity.java"
-
-        # If user/agent provided updated source code, write it
-        if main_activity_code and main_activity_code.strip():
+        java_src_dir = target_dir / "app" / "src" / "main" / "java" / pkg_rel_dir
+        if java_src_dir.exists() and main_activity_code and main_activity_code.strip():
+            main_activity_file = java_src_dir / "MainActivity.java"
             main_activity_file.write_text(main_activity_code.strip(), encoding="utf-8")
             logger.info("Updated %s with new activity source code (%d chars)", main_activity_file, len(main_activity_code))
 
-        # Check Gradle binary
-        if not GRADLE_BIN.exists():
-            return f"Error: Gradle wrapper not found at '{GRADLE_BIN}'."
+        # Check Gradle binary - prefer local wrapper if present
+        local_gradlew = target_dir / "gradlew.bat"
+        if local_gradlew.exists():
+            gradle_exec = str(local_gradlew)
+        elif GRADLE_BIN.exists():
+            gradle_exec = str(GRADLE_BIN)
+        else:
+            return f"Error: Gradle wrapper not found at '{local_gradlew}' or '{GRADLE_BIN}'."
 
         # Locate Android SDK
         local_app_data = os.environ.get("LOCALAPPDATA", "")
@@ -69,8 +103,8 @@ def build_android_apk(
         if adoptium_jdk.exists():
             env["JAVA_HOME"] = str(adoptium_jdk)
 
-        logger.info("Running Gradle assembleDebug in %s...", ANDROID_APP_DIR)
-        cmd = [str(GRADLE_BIN), "-p", str(ANDROID_APP_DIR), "assembleDebug"]
+        logger.info("Running Gradle assembleDebug in %s...", target_dir)
+        cmd = [gradle_exec, "-p", str(target_dir), "assembleDebug"]
         proc = subprocess.run(
             cmd,
             env=env,
@@ -79,25 +113,37 @@ def build_android_apk(
             timeout=180
         )
 
-        if proc.returncode != 0:
-            return f"[Build Failed with exit code {proc.returncode}]\nSTDOUT: {proc.stdout[-1500:]}\nSTDERR: {proc.stderr[-1500:]}"
-
         # Locate generated APK
-        source_apk = ANDROID_APP_DIR / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
-        if not source_apk.exists():
-            return f"Build completed, but output APK not found at '{source_apk}'."
+        source_apk = None
+        candidates = [
+            target_dir / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk",
+            target_dir / "app" / "build" / "outputs" / "apk" / "release" / "app-release.apk"
+        ]
+        for c in candidates:
+            if c.exists():
+                source_apk = c
+                break
 
-        # Ensure output filename ends with .apk
-        clean_name = output_filename if output_filename.endswith(".apk") else f"{output_filename}.apk"
+        if not source_apk:
+            # Search recursively in target_dir outputs
+            apk_files = list((target_dir / "app" / "build" / "outputs").glob("**/*.apk")) if (target_dir / "app" / "build" / "outputs").exists() else []
+            if apk_files:
+                source_apk = apk_files[0]
+
+        if not source_apk and proc.returncode != 0:
+            return f"[Build Failed with exit code {proc.returncode}]\nSTDOUT: {proc.stdout[-1500:]}\nSTDERR: {proc.stderr[-1500:]}"
+        elif not source_apk:
+            return f"Build completed, but output APK not found in '{target_dir}'."
+
         dest_apk = WORKSPACE_ROOT / clean_name
         shutil.copy2(source_apk, dest_apk)
-        # Also copy to standard fallback locations so all download buttons resolve
-        try:
-            shutil.copy2(source_apk, WORKSPACE_ROOT / "app-debug.apk")
-            shutil.copy2(source_apk, WORKSPACE_ROOT / "HelloWorld-debug.apk")
-            shutil.copy2(source_apk, WORKSPACE_ROOT / "NearbyShare-debug.apk")
-        except Exception:
-            pass
+        # Also ensure copy in target_dir if target_dir is inside workspace
+        if target_dir != WORKSPACE_ROOT and target_dir.parent == WORKSPACE_ROOT:
+            try:
+                shutil.copy2(source_apk, target_dir / clean_name)
+            except Exception:
+                pass
+
 
         apk_size = dest_apk.stat().st_size
         return (

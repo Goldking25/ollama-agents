@@ -1925,14 +1925,16 @@
             );
 
             if (isApkArtifact) {
-                const apkMatch = rawContent.match(/([\w-]+\.apk)/i);
-                const apkFilename = apkMatch ? apkMatch[1] : "app-debug.apk";
-                apkNoticeHtml = `
-                    <div style="margin-top: 0.8rem; padding: 0.6rem 0.9rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 10px; display: flex; align-items: center; justify-content: space-between;">
-                        <span style="font-size: 0.85rem; color: #a7f3d0; font-weight: 600;">📱 Generated Android APK File: <code>${apkFilename}</code></span>
-                        <a href="/workspace/${apkFilename}" download target="_blank" style="background: #10b981; color: white; padding: 0.4rem 0.9rem; border-radius: 6px; text-decoration: none; font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem;">📥 Download APK</a>
-                    </div>
-                `;
+                const apkMatch = rawContent.match(/([\w.-]+\.apk)/i);
+                if (apkMatch) {
+                    const apkFilename = apkMatch[1];
+                    apkNoticeHtml = `
+                        <div style="margin-top: 0.8rem; padding: 0.6rem 0.9rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 10px; display: flex; align-items: center; justify-content: space-between;">
+                            <span style="font-size: 0.85rem; color: #a7f3d0; font-weight: 600;">📱 Generated Android APK File: <code>${apkFilename}</code></span>
+                            <a href="/workspace/${apkFilename}" download target="_blank" style="background: #10b981; color: white; padding: 0.4rem 0.9rem; border-radius: 6px; text-decoration: none; font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem;">📥 Download APK</a>
+                        </div>
+                    `;
+                }
             }
 
             row.innerHTML = `${avatarHtml}<div class="bubble">${modelBadgeHtml}${formattedContent}${extraAttachmentHtml}${apkNoticeHtml}</div>`;
@@ -2468,16 +2470,17 @@
                         const outputText = t.output || t.result || "";
                         let resultPreview = "";
                         let taskApkDownload = "";
-
                         if (outputText.includes(".apk")) {
-                            const apkMatch = outputText.match(/([\w-]+\.apk)/i);
-                            const apkFilename = apkMatch ? apkMatch[1] : "HelloWorld-debug.apk";
-                            taskApkDownload = `
-                                <div style="margin-top: 0.4rem; padding: 0.4rem 0.6rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 6px; display: flex; align-items: center; justify-content: space-between;">
-                                    <span style="font-size: 0.8rem; color: #a7f3d0; font-weight: 600;">📱 Generated APK: <code>${apkFilename}</code></span>
-                                    <a href="/workspace/${apkFilename}" download target="_blank" style="background: #10b981; color: white; padding: 0.25rem 0.6rem; border-radius: 4px; text-decoration: none; font-size: 0.75rem; font-weight: 600;">📥 Download APK</a>
-                                </div>
-                            `;
+                            const apkMatch = outputText.match(/([\w.-]+\.apk)/i);
+                            const apkFilename = apkMatch ? apkMatch[1] : (g.apk_filename || "");
+                            if (apkFilename) {
+                                taskApkDownload = `
+                                    <div style="margin-top: 0.4rem; padding: 0.4rem 0.6rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 6px; display: flex; align-items: center; justify-content: space-between;">
+                                        <span style="font-size: 0.8rem; color: #a7f3d0; font-weight: 600;">📱 Generated APK: <code>${apkFilename}</code></span>
+                                        <a href="/workspace/${apkFilename}" download target="_blank" style="background: #10b981; color: white; padding: 0.25rem 0.6rem; border-radius: 4px; text-decoration: none; font-size: 0.75rem; font-weight: 600;">📥 Download APK</a>
+                                    </div>
+                                `;
+                            }
                         }
 
                         if (outputText) {
@@ -2542,8 +2545,8 @@
                             <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; padding: 0.8rem 1rem; margin-bottom: 0.8rem;">
                                 <div style="font-weight: 600; color: #a7f3d0; font-size: 0.9rem; margin-bottom: 0.3rem; display: flex; align-items: center; justify-content: space-between;">
                                     <span>🎯 Overall Goal Final Synthesis</span>
-                                    ${g.final_summary.includes(".apk") ? `
-                                        <a href="/workspace/${(g.final_summary.match(/([\w-]+\.apk)/i) || ['', 'NearbyShare-debug.apk'])[1]}" download target="_blank" style="background: #10b981; color: white; padding: 0.25rem 0.6rem; border-radius: 4px; text-decoration: none; font-size: 0.75rem; font-weight: 600;">📥 Download APK</a>
+                                    ${(g.apk_download_url || (g.final_summary && g.final_summary.match(/([\w.-]+\.apk)/i))) ? `
+                                        <a href="${g.apk_download_url || ('/workspace/' + g.final_summary.match(/([\w.-]+\.apk)/i)[1])}" download target="_blank" style="background: #10b981; color: white; padding: 0.25rem 0.6rem; border-radius: 4px; text-decoration: none; font-size: 0.75rem; font-weight: 600;">📥 Download APK</a>
                                     ` : ''}
                                 </div>
                                 <div data-summary-container="summary_${g.goal_id}" style="font-size: 0.85rem; color: var(--text-main); line-height: 1.5; white-space: pre-wrap; max-height: 200px; overflow-y: auto;">${g.final_summary}</div>
@@ -2566,8 +2569,8 @@
                                 <div style="font-size: 0.78rem; color: #818cf8; font-weight: 600; margin-bottom: 0.4rem; display: flex; align-items: center; justify-content: space-between;">
                                     <span>💬 Ask Follow-up Question on this Goal:</span>
                                     <div style="display: flex; gap: 0.3rem; align-items: center;">
-                                        ${(g.title.toLowerCase().includes("apk") || g.title.toLowerCase().includes("android") || (g.final_summary && g.final_summary.toLowerCase().includes(".apk"))) ? `
-                                            <a href="/workspace/${(g.final_summary && (g.final_summary.match(/([\w-]+\.apk)/i) || [])[1]) || (g.tasks && (g.tasks.map(t=>t.output||'').join(' ').match(/([\w-]+\.apk)/i) || [])[1]) || 'app-debug.apk'}" download target="_blank" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); text-decoration: none; padding: 0.15rem 0.45rem; border-radius: 12px; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem;">📱 Download APK</a>
+                                        ${g.apk_download_url ? `
+                                            <a href="${g.apk_download_url}" download target="_blank" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); text-decoration: none; padding: 0.15rem 0.45rem; border-radius: 12px; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem;">📱 Download APK (${g.apk_filename})</a>
                                         ` : ''}
                                         <button class="chip" onclick="document.getElementById('followup_file_${g.goal_id}').click()" style="font-size: 0.72rem; padding: 0.15rem 0.45rem;">📁 Attach File</button>
                                         <button class="chip" onclick="fetchWorkspaceFiles()" style="font-size: 0.72rem; padding: 0.15rem 0.45rem;">📂 Browse App Files</button>

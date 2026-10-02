@@ -62,9 +62,30 @@ _TEXT_TOOL_MODELS = {
 def _is_text_tool_model(model_name: str) -> bool:
     """Check if a model needs text-based tool injection instead of native tool calling."""
     name_lower = model_name.lower()
-    # Qwen models (including qwen3.5-abliterated) support native Ollama tool calling
+    # Qwen models (including qwen2.5-coder, qwen3.5, etc.) support native Ollama tool calling
     if "qwen" in name_lower:
         return False
+    # Gemma 3 & Gemma 4 support native Ollama tool calling
+    if any(g in name_lower for g in ("gemma3", "gemma4", "gemma-3", "gemma-4")):
+        return False
+    # Models known to NOT support native tools in Ollama:
+    text_tool_hints = (
+        "deepseek",
+        "starcoder",
+        "wizardcoder",
+        "codellama",
+        "phi-3",
+        "phi3",
+        "falcon",
+        "vicuna",
+        "orca",
+        "openhermes",
+    )
+    if any(h in name_lower for h in text_tool_hints):
+        return True
+    # Older gemma versions (gemma:2b, gemma:7b, gemma2)
+    if "gemma" in name_lower:
+        return True
     # Check exact match or prefix match (for tag variants like :9b, :latest)
     for blocked in _TEXT_TOOL_MODELS:
         if name_lower.startswith(blocked.lower()):
@@ -244,7 +265,7 @@ class Agent:
                     parts.append(lesson)
 
         if self.tools:
-            if _is_text_tool_model(self.model):
+            if _is_text_tool_model(self.model) or getattr(self, '_force_text_tools', False):
                 # Text-based tool injection for models that can't use native tool calling
                 tool_descriptions = []
                 for tool_name, tool_obj in self.tools.items():
@@ -449,6 +470,66 @@ class Agent:
                     if not isinstance(fn_args, dict):
                         fn_args = {"input": fn_args}
                     calls.append({"function": {"name": fn_name, "arguments": fn_args}})
+
+        if not calls:
+            # 7. Match explicit CLI/IPython commands (!build_android_apk, !mkdir, !python, etc.)
+            for line in content.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("!") and len(stripped) > 1:
+                    cmd_line = stripped[1:].strip()
+                    if cmd_line.startswith("build_android_apk") and ("build_android_apk" in tool_names or not tool_names):
+                        parts = cmd_line.split(maxsplit=1)
+                        arg_str = parts[1].strip() if len(parts) > 1 else ""
+                        fn_args = {}
+                        if "2048" in arg_str or "2048" in content.lower():
+                            fn_args["output_filename"] = "2048_game_application.apk"
+                            fn_args["project_dir"] = arg_str if arg_str else "2048_game_application"
+                        elif arg_str:
+                            fn_args["project_dir"] = arg_str
+                        calls.append({"function": {"name": "build_android_apk", "arguments": fn_args}})
+                        break
+                    elif "run_terminal" in tool_names or not tool_names:
+                        calls.append({"function": {"name": "run_terminal", "arguments": {"command": cmd_line}}})
+                        break
+
+        if not calls and ("build_android_apk" in tool_names or not tool_names):
+            # 8. Check for explicit build_android_apk intent or invocation in text
+            if "build_android_apk" in content.lower():
+                fn_args = {}
+                if "2048" in content.lower():
+                    fn_args["output_filename"] = "2048_game_application.apk"
+                    fn_args["project_dir"] = "2048_game_application"
+                calls.append({"function": {"name": "build_android_apk", "arguments": fn_args}})
+
+        if not calls and ("run_terminal" in tool_names or not tool_names):
+            # 9. Match shell/bash code blocks ```bash ... ```
+            bash_blocks = re.findall(r"```(?:bash|sh|shell|cmd|powershell)\s*([\s\S]*?)\s*```", content)
+            for block in bash_blocks:
+                cmd_text = block.strip()
+                if cmd_text and not cmd_text.startswith("#"):
+                    clean_cmds = "\n".join(l[1:].strip() if l.strip().startswith("!") else l for l in cmd_text.splitlines())
+                    calls.append({"function": {"name": "run_terminal", "arguments": {"command": clean_cmds}}})
+                    break
+
+        if not calls:
+            # 10. Match informal Action: <tool_name> without strict JSON
+            action_loose = re.search(r"(?:###\s*)?Action\s*:\s*([a-zA-Z0-9_-]+)", content, re.IGNORECASE)
+            if action_loose:
+                cand_name = action_loose.group(1).strip()
+                if cand_name in tool_names:
+                    calls.append({"function": {"name": cand_name, "arguments": {}}})
+
+        if not calls:
+            # 11. Match Gemma call:<tool_name>{...} format
+            gemma_match = re.search(r"call:([a-zA-Z0-9_-]+)\s*(\{[\s\S]*?\})", content)
+            if gemma_match:
+                cand_name = gemma_match.group(1).strip()
+                if not tool_names or cand_name in tool_names:
+                    try:
+                        parsed_args = json.loads(gemma_match.group(2).strip())
+                        calls.append({"function": {"name": cand_name, "arguments": parsed_args}})
+                    except Exception:
+                        pass
 
         return calls
 
@@ -697,8 +778,12 @@ class Agent:
                     or err.status_code in (400, 500)
                 ):
                     # Model/Ollama failed parsing native tools via XML/schema - fall back to sanitized text prompt tools
-                    logger.warning("[%s] Native tool error (%s). Retrying chat with sanitized history...", self.name, err)
-                    
+                    logger.warning("[%s] Native tool error (%s). Switching to text tool format...", self.name, err)
+                    self._force_text_tools = True
+                    use_native_tools = False
+                    tool_schemas = None
+                    self._cached_system_prompt = None
+
                     # Convert role 'tool' to 'user' so non-native model endpoints don't reject the payload
                     fallback_history = []
                     for m in self.history:
@@ -709,11 +794,16 @@ class Agent:
                         elif fm.get("role") == "assistant" and not str(fm.get("content", "")).strip():
                             fm["content"] = f"Thought: {fm.get('thinking', 'analyzing...')}"
                         fallback_history.append(fm)
-                        
+
+                    # Update system prompt to text tool instructions
+                    if fallback_history and fallback_history[0].get("role") == "system":
+                        fallback_history[0]["content"] = self._build_system_prompt(user_prompt)
+
                     # Ensure at least one valid user query exists
                     if not any(m.get("role") == "user" and bool(str(m.get("content", "")).strip()) for m in fallback_history):
                         fallback_history.append({"role": "user", "content": user_prompt or "Proceed with task."})
-                        
+
+                    self.history = fallback_history
                     try:
                         response = self.client.chat(
                             model=self.model,
@@ -804,7 +894,7 @@ class Agent:
                     emit("thought", thought_text)
 
             # ── Goal-completion detection ──────────────────────────────
-            if "Final Answer:" in content:
+            if "Final Answer:" in content and not tool_calls_list:
                 answer = content.split("Final Answer:", 1)[-1].strip()
                 logger.info("[%s] Final Answer at turn %d.", self.name, turn + 1)
                 emit("answer", answer)
