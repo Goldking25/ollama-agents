@@ -96,6 +96,12 @@ class Critic:
         )
         logger.info("Critic reviewing output for task: %s...", task[:60])
 
+        try:
+            from ollama_agents.memory_manager import memory_manager
+            memory_manager.prepare_model_switch(self.model)
+        except Exception:
+            pass
+
         response = self.client.chat(
             model=self.model,
             messages=[

@@ -40,7 +40,8 @@ class MemorySafetyManager:
         max_concurrent_agents: int = 3,
         ram_threshold_pct: float = 85.0,
         vram_threshold_pct: float = 90.0,
-        auto_gc: bool = True
+        auto_gc: bool = True,
+        auto_unload_on_switch: bool = True
     ):
         if self._initialized:
             return
@@ -48,14 +49,146 @@ class MemorySafetyManager:
         self.ram_threshold_pct = ram_threshold_pct
         self.vram_threshold_pct = vram_threshold_pct
         self.auto_gc = auto_gc
+        env_unload = os.getenv("AUTO_UNLOAD_ON_MODEL_SWITCH", "true").lower() in ("1", "true", "yes")
+        self.auto_unload_on_switch = auto_unload_on_switch and env_unload
         self.active_agent_count = 0
         self.semaphore = threading.Semaphore(max_concurrent_agents)
         self._count_lock = threading.Lock()
         self._initialized = True
         logger.info(
-            "MemorySafetyManager initialized (Max Concurrent: %d, RAM Threshold: %.1f%%, VRAM Threshold: %.1f%%)",
-            max_concurrent_agents, ram_threshold_pct, vram_threshold_pct
+            "MemorySafetyManager initialized (Max Concurrent: %d, RAM Threshold: %.1f%%, VRAM Threshold: %.1f%%, Auto-Unload: %s)",
+            max_concurrent_agents, ram_threshold_pct, vram_threshold_pct, self.auto_unload_on_switch
         )
+
+    def _get_ollama_base_url(self, host: Optional[str] = None) -> str:
+        """Resolve Ollama base URL from argument, env, or default localhost."""
+        if host:
+            h = host.strip()
+            if not h.startswith("http://") and not h.startswith("https://"):
+                h = f"http://{h}"
+            return h.rstrip("/")
+        env_host = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434").strip()
+        if not env_host.startswith("http://") and not env_host.startswith("https://"):
+            env_host = f"http://{env_host}"
+        return env_host.rstrip("/")
+
+    def get_loaded_models(self, host: Optional[str] = None) -> list:
+        """Query Ollama /api/ps to retrieve models currently resident in RAM/VRAM."""
+        base_url = self._get_ollama_base_url(host)
+        try:
+            import httpx
+            resp = httpx.get(f"{base_url}/api/ps", timeout=3.0)
+            if resp.status_code == 200:
+                raw_models = resp.json().get("models", [])
+                result = []
+                for m in raw_models:
+                    name = m.get("name") or m.get("model") or ""
+                    size_bytes = m.get("size", 0)
+                    size_vram = m.get("size_vram", 0)
+                    result.append({
+                        "name": name,
+                        "model": name,
+                        "size_gb": round(size_bytes / (1024**3), 2),
+                        "size_vram_gb": round(size_vram / (1024**3), 2),
+                        "expires_at": m.get("expires_at"),
+                        "details": m.get("details", {})
+                    })
+                return result
+        except Exception as e:
+            logger.debug("Failed to query loaded models from %s: %s", base_url, e)
+        return []
+
+    def unload_model(self, model_name: str, host: Optional[str] = None) -> bool:
+        """Unload a specific model from Ollama RAM/VRAM immediately by sending keep_alive: 0."""
+        if not model_name:
+            return False
+        base_url = self._get_ollama_base_url(host)
+        try:
+            import httpx
+            resp = httpx.post(
+                f"{base_url}/api/generate",
+                json={"model": model_name, "keep_alive": 0},
+                timeout=5.0
+            )
+            if resp.status_code == 200:
+                logger.info("[MemorySafety] Successfully unloaded model '%s' from RAM/VRAM on %s", model_name, base_url)
+                return True
+            else:
+                logger.warning("[MemorySafety] Unload request for '%s' returned status %d: %s", model_name, resp.status_code, resp.text)
+        except Exception as e:
+            logger.warning("[MemorySafety] Failed to unload model '%s' from %s: %s", model_name, base_url, e)
+        return False
+
+    def unload_all_loaded_models(self, host: Optional[str] = None) -> list:
+        """Unload all currently loaded models from Ollama RAM/VRAM."""
+        loaded = self.get_loaded_models(host=host)
+        unloaded = []
+        for m in loaded:
+            m_name = m.get("name")
+            if m_name and self.unload_model(m_name, host=host):
+                unloaded.append(m_name)
+        if unloaded:
+            self._clean_torch_and_gc()
+        return unloaded
+
+    def _clean_torch_and_gc(self):
+        """Clean PyTorch CUDA cache and run Python garbage collection."""
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+        except Exception:
+            pass
+        gc.collect()
+
+    def prepare_model_switch(self, target_model: str, host: Optional[str] = None, force: bool = False) -> list:
+        """Smart Model Switching: If another model is currently resident in RAM/VRAM,
+        proactively unload it to prevent VRAM overflow, CPU offload latency, and OOM crashes.
+        
+        Args:
+            target_model: The model about to be executed.
+            host: Optional Ollama host URL.
+            force: If True, unload even if auto_unload_on_switch is disabled.
+
+        Returns:
+            List of model names unloaded.
+        """
+        if not (self.auto_unload_on_switch or force) or not target_model:
+            return []
+
+        loaded = self.get_loaded_models(host=host)
+        if not loaded:
+            return []
+
+        target_norm = target_model.strip().lower()
+        target_clean = target_norm[:-7] if target_norm.endswith(":latest") else target_norm
+        unloaded = []
+
+        for m in loaded:
+            loaded_name = (m.get("name") or m.get("model") or "").strip()
+            if not loaded_name:
+                continue
+            l_norm = loaded_name.lower()
+            l_clean = l_norm[:-7] if l_norm.endswith(":latest") else l_norm
+
+            # Same model check (exact or canonical tag)
+            if l_norm == target_norm or l_clean == target_clean:
+                # Target model is already warm in memory
+                continue
+
+            logger.info(
+                "[MemorySafety] Model switch detected: New task requires '%s'. Proactively unloading inactive loaded model '%s' (occupying %.2f GB in memory)...",
+                target_model, loaded_name, m.get("size_gb", 0.0)
+            )
+            if self.unload_model(loaded_name, host=host):
+                unloaded.append(loaded_name)
+
+        if unloaded:
+            self._clean_torch_and_gc()
+            logger.info("[MemorySafety] Freed RAM/VRAM before executing '%s'. Unloaded: %s", target_model, unloaded)
+
+        return unloaded
 
     def _get_gpu_vram_stats(self) -> Dict[str, Any]:
         """Query NVIDIA GPU VRAM metrics via nvidia-smi if available."""
@@ -93,9 +226,10 @@ class MemorySafetyManager:
         }
 
     def get_system_stats(self) -> Dict[str, Any]:
-        """Get current system memory, GPU VRAM, and CPU utilization stats."""
+        """Get current system memory, GPU VRAM, CPU utilization stats, and loaded Ollama models."""
         mem = psutil.virtual_memory()
         gpu_stats = self._get_gpu_vram_stats()
+        loaded = self.get_loaded_models()
 
         return {
             "ram_total_gb": round(mem.total / (1024**3), 2),
@@ -104,7 +238,8 @@ class MemorySafetyManager:
             "cpu_used_pct": psutil.cpu_percent(interval=None),
             "active_agents": self.active_agent_count,
             "max_concurrent": self.max_concurrent_agents,
-            "gpu": gpu_stats
+            "gpu": gpu_stats,
+            "loaded_models": loaded
         }
 
     def check_memory_headroom(self) -> bool:
@@ -155,26 +290,10 @@ class MemorySafetyManager:
         collected = gc.collect()
 
         # 1. Free PyTorch CUDA Cache if torch is available
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.ipc_collect()
-        except Exception:
-            pass
+        self._clean_torch_and_gc()
 
         # 2. Unload running models from Ollama GPU VRAM (set keep_alive: 0)
-        try:
-            import httpx
-            ps_resp = httpx.get("http://127.0.0.1:11434/api/ps", timeout=3.0)
-            if ps_resp.status_code == 200:
-                models = ps_resp.json().get("models", [])
-                for m in models:
-                    model_name = m.get("name") or m.get("model")
-                    if model_name:
-                        httpx.post("http://127.0.0.1:11434/api/generate", json={"model": model_name, "keep_alive": 0}, timeout=5.0)
-        except Exception as e:
-            logger.debug("Ollama VRAM unload check: %s", e)
+        unloaded_models = self.unload_all_loaded_models()
 
         # 3. Unload ComfyUI models from GPU VRAM if running
         try:
@@ -194,11 +313,12 @@ class MemorySafetyManager:
         stats = self.get_system_stats()
         vram_free = stats["gpu"]["vram_free_gb"] if stats["gpu"]["gpu_available"] else 0.0
         logger.info(
-            "Garbage collection completed. Objects collected: %d. Free RAM: %.2f GB, Free VRAM: %.2f GB",
-            collected, stats["ram_available_gb"], vram_free
+            "Garbage collection completed. Objects collected: %d. Unloaded models: %s. Free RAM: %.2f GB, Free VRAM: %.2f GB",
+            collected, unloaded_models, stats["ram_available_gb"], vram_free
         )
         return {
             "collected_objects": collected,
+            "unloaded_models": unloaded_models,
             "free_ram_gb": stats["ram_available_gb"],
             "vram_free_gb": vram_free,
             "gpu_available": stats["gpu"]["gpu_available"]

@@ -83,6 +83,14 @@ if %errorlevel% equ 0 (
 
 :: 6. Launch Web UI bound to 0.0.0.0 (Local + Remote Access)
 echo.
+echo [*] Cleaning up any stale processes on port 8100...
+for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr :8100 ^| findstr LISTENING') do (
+    if not "%%p"=="" (
+        echo [*] Terminating lingering process PID %%p on port 8100...
+        taskkill /F /PID %%p >nul 2>&1
+    )
+)
+
 echo ===================================================================
 echo   Ollama Agents Web Dashboard Ready!
 echo.
@@ -99,13 +107,21 @@ start http://localhost:8100
 
 :server_loop
 %PYTHON_CMD% -m ollama_agents.cli serve --host 0.0.0.0 --port 8100
-if %errorlevel% equ 42 (
+set SERVER_EXIT=%errorlevel%
+if %SERVER_EXIT% equ 42 (
     echo.
     echo ===================================================================
     echo   [RESTART] Reloading Ollama Agents Server ^& Python Modules...
     echo ===================================================================
     echo.
     timeout /t 1 /nobreak >nul
+    goto server_loop
+)
+
+if %SERVER_EXIT% neq 0 (
+    echo.
+    echo [*] Server exited unexpectedly with code %SERVER_EXIT%. Restarting in 2 seconds...
+    timeout /t 2 /nobreak >nul
     goto server_loop
 )
 

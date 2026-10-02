@@ -55,79 +55,148 @@ async def _generate_video_comfyui_async(
         if init_image and denoise == 1.0:
             effective_denoise = 0.65
 
-        nodes = {
-            "1": {
-                "class_type": "UNETLoader",
-                "inputs": {"unet_name": ckpt_name, "weight_dtype": "default"},
-            },
-            "2": {
-                "class_type": "CLIPLoader",
-                "inputs": {
-                    "clip_name": "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
-                    "type": "ltxv",
+        is_wan = "wan" in ckpt_name.lower()
+
+        if is_wan:
+            nodes = {
+                "1": {
+                    "class_type": "UNETLoader",
+                    "inputs": {"unet_name": ckpt_name, "weight_dtype": "default"},
                 },
-            },
-            "3": {
-                "class_type": "VAELoader",
-                "inputs": {"vae_name": "ltx-2.5-video-vae-bf16.safetensors"},
-            },
-            "4": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"clip": ["2", 0], "text": prompt},
-            },
-            "5": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"clip": ["2", 0], "text": negative_prompt},
-            },
-            "6": {
-                "class_type": "LTXVConditioning",
-                "inputs": {
-                    "positive": ["4", 0],
-                    "negative": ["5", 0],
-                    "frame_rate": float(fps),
+                "2": {
+                    "class_type": "CLIPLoader",
+                    "inputs": {
+                        "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+                        "type": "wan",
+                    },
                 },
-            },
-            "7": {
-                "class_type": "EmptyLTXVLatentVideo",
-                "inputs": {
-                    "width": width,
-                    "height": height,
-                    "length": frames,
-                    "batch_size": 1,
+                "3": {
+                    "class_type": "VAELoader",
+                    "inputs": {"vae_name": "wan_2.1_vae.safetensors"},
                 },
-            },
-            "8": {
-                "class_type": "KSampler",
-                "inputs": {
-                    "model": ["1", 0],
-                    "positive": ["6", 0],
-                    "negative": ["6", 1],
-                    "latent_image": ["7", 0],
-                    "seed": int(time.time()),
-                    "steps": max(int(steps), 15),  # 20-30 steps for crisp motion & sharp quality
-                    "cfg": 3.5,
-                    "sampler_name": "euler",
-                    "scheduler": "normal",
-                    "denoise": effective_denoise,
+                "4": {
+                    "class_type": "CLIPTextEncode",
+                    "inputs": {"clip": ["2", 0], "text": prompt},
                 },
-            },
-            "9": {
-                "class_type": "VAEDecode",
-                "inputs": {"samples": ["8", 0], "vae": ["3", 0]},
-            },
-            "10": {
-                "class_type": "VHS_VideoCombine",
-                "inputs": {
-                    "images": ["9", 0],
-                    "frame_rate": fps,
-                    "loop_count": 0,
-                    "filename_prefix": "comfy_video",
-                    "format": "video/h264-mp4",
-                    "pingpong": False,
-                    "save_output": True,
+                "5": {
+                    "class_type": "CLIPTextEncode",
+                    "inputs": {"clip": ["2", 0], "text": negative_prompt},
                 },
-            },
-        }
+                "7": {
+                    "class_type": "EmptyHunyuanLatentVideo",
+                    "inputs": {
+                        "width": width,
+                        "height": height,
+                        "length": frames,
+                        "batch_size": 1,
+                    },
+                },
+                "8": {
+                    "class_type": "KSampler",
+                    "inputs": {
+                        "model": ["1", 0],
+                        "positive": ["4", 0],
+                        "negative": ["5", 0],
+                        "latent_image": ["7", 0],
+                        "seed": int(time.time()),
+                        "steps": max(int(steps), 20),
+                        "cfg": 6.0,
+                        "sampler_name": "uni_pc",
+                        "scheduler": "simple",
+                        "denoise": effective_denoise,
+                    },
+                },
+                "9": {
+                    "class_type": "VAEDecode",
+                    "inputs": {"samples": ["8", 0], "vae": ["3", 0]},
+                },
+                "10": {
+                    "class_type": "VHS_VideoCombine",
+                    "inputs": {
+                        "images": ["9", 0],
+                        "frame_rate": fps,
+                        "loop_count": 0,
+                        "filename_prefix": "comfy_video",
+                        "format": "video/h264-mp4",
+                        "pingpong": False,
+                        "save_output": True,
+                    },
+                },
+            }
+        else:
+            nodes = {
+                "1": {
+                    "class_type": "UNETLoader",
+                    "inputs": {"unet_name": ckpt_name, "weight_dtype": "default"},
+                },
+                "2": {
+                    "class_type": "CLIPLoader",
+                    "inputs": {
+                        "clip_name": "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+                        "type": "ltxv",
+                    },
+                },
+                "3": {
+                    "class_type": "VAELoader",
+                    "inputs": {"vae_name": "ltx-2.5-video-vae-bf16.safetensors"},
+                },
+                "4": {
+                    "class_type": "CLIPTextEncode",
+                    "inputs": {"clip": ["2", 0], "text": prompt},
+                },
+                "5": {
+                    "class_type": "CLIPTextEncode",
+                    "inputs": {"clip": ["2", 0], "text": negative_prompt},
+                },
+                "6": {
+                    "class_type": "LTXVConditioning",
+                    "inputs": {
+                        "positive": ["4", 0],
+                        "negative": ["5", 0],
+                        "frame_rate": float(fps),
+                    },
+                },
+                "7": {
+                    "class_type": "EmptyLTXVLatentVideo",
+                    "inputs": {
+                        "width": width,
+                        "height": height,
+                        "length": frames,
+                        "batch_size": 1,
+                    },
+                },
+                "8": {
+                    "class_type": "KSampler",
+                    "inputs": {
+                        "model": ["1", 0],
+                        "positive": ["6", 0],
+                        "negative": ["6", 1],
+                        "latent_image": ["7", 0],
+                        "seed": int(time.time()),
+                        "steps": max(int(steps), 15),  # 20-30 steps for crisp motion & sharp quality
+                        "cfg": 3.5,
+                        "sampler_name": "euler",
+                        "scheduler": "normal",
+                        "denoise": effective_denoise,
+                    },
+                },
+                "9": {
+                    "class_type": "VAEDecode",
+                    "inputs": {"samples": ["8", 0], "vae": ["3", 0]},
+                },
+                "10": {
+                    "class_type": "VHS_VideoCombine",
+                    "inputs": {
+                        "images": ["9", 0],
+                        "frame_rate": fps,
+                        "loop_count": 0,
+                        "filename_prefix": "comfy_video",
+                        "format": "video/h264-mp4",
+                        "pingpong": False,
+                        "save_output": True,
+                    },
+                },
+            }
 
         # If init_image is specified, hook up LoadImage node
         if init_image:
@@ -151,6 +220,18 @@ async def _generate_video_comfyui_async(
             )
             resp = await client.post(prompt_endpoint, json=payload, timeout=30.0)
             if resp.status_code != 200:
+                try:
+                    err_json = resp.json()
+                    node_errors = err_json.get("node_errors", {})
+                    if node_errors:
+                        details = []
+                        for n_id, n_err in node_errors.items():
+                            for err_item in n_err.get("errors", []):
+                                details.append(err_item.get("details", err_item.get("message", "")))
+                        if details:
+                            return f"ComfyUI Validation Error: {'; '.join(details)}. Please select an installed model."
+                except Exception:
+                    pass
                 return (
                     f"ComfyUI API Error ({resp.status_code}): {resp.text[:1000]}. "
                     f"Ensure ComfyUI is running at '{api_url}'."

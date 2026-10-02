@@ -45,10 +45,13 @@ reports/
 scratch/
 comfy_history.json
 temp*
-test_*.py
-test.py
+/test_*.py
+/test.py
+!tests/test_*.py
 test_img.png
 comfyui.py
+server.log
+download_wan.py
 
 # IDE / Editor
 .vscode/

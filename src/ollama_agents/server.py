@@ -9,7 +9,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,12 +45,27 @@ class CreateGoalRequest(BaseModel):
     prompt: str
     model: str = "deepseek-r1:8b"
 
+class UpdateTaskModelRequest(BaseModel):
+    model: Optional[str] = None
+
+class UpdateGoalModelRequest(BaseModel):
+    model: str
+
 class PullModelRequest(BaseModel):
     model_tag: str
+
+class UnloadModelRequest(BaseModel):
+    model: Optional[str] = None
 
 class AddNodeRequest(BaseModel):
     host_url: str
     name: Optional[str] = None
+
+class WorkerRegisterRequest(BaseModel):
+    hostname: str = "WorkerNode"
+    worker_port: int = 9000
+    ollama_port: int = 11434
+    platform: Optional[str] = None
 
 class CodebaseSaveRequest(BaseModel):
     path: str
@@ -115,7 +130,8 @@ async def websocket_cluster_stream(websocket: WebSocket):
         while True:
             # ── Cluster status (every 2.5 s) ─────────────────────────
             try:
-                status = cluster_manager.refresh_cluster_status()
+                loop = asyncio.get_running_loop()
+                status = await loop.run_in_executor(None, cluster_manager.refresh_cluster_status)
                 await websocket.send_json({"type": "cluster_status", "data": status})
             except Exception:
                 pass
@@ -164,7 +180,8 @@ async def websocket_cluster_stream(websocket: WebSocket):
                             "updated": g.updated,
                             "tasks": [
                                 {"id": t.id, "description": t.description,
-                                 "status": t.status, "output": (t.output or "")[:200]}
+                                 "status": t.status, "output": (t.output or "")[:200],
+                                 "model_override": getattr(t, "model_override", None)}
                                 for t in g.tasks
                             ],
                         })
@@ -193,7 +210,28 @@ def api_add_cluster_node(req: AddNodeRequest):
     node = cluster_manager.add_node(host_url=req.host_url, name=req.name)
     if node.is_active:
         return {"status": "success", "message": f"Successfully connected secondary laptop node '{node.name}' ({node.host_url})!", "node": node.__dict__}
-    return {"status": "warning", "message": f"Added node '{node.name}' ({node.host_url}), but could not reach Ollama API. Ensure 'OLLAMA_HOST=0.0.0.0' is set on secondary machine.", "node": node.__dict__}
+    return {"status": "warning", "message": f"Added node '{node.name}' ({node.host_url}), but could not reach Ollama or Worker API.", "node": node.__dict__}
+
+@app.post("/api/cluster/register")
+def api_register_cluster_worker(req: WorkerRegisterRequest, request: Request):
+    """Direct HTTP self-registration endpoint for worker nodes (e.g. Raspberry Pi)."""
+    from ollama_agents.cluster import cluster_manager
+    worker_ip = request.client.host if request.client else "127.0.0.1"
+    
+    # Register worker URL
+    worker_url = f"http://{worker_ip}:{req.worker_port}"
+    node = cluster_manager.add_node(host_url=worker_url, name=f"{req.hostname} ({worker_ip})", source="http_register")
+    
+    return {
+        "status": "success",
+        "message": f"Worker '{req.hostname}' at {worker_ip} registered successfully!",
+        "node": {
+            "name": node.name,
+            "url": node.host_url,
+            "active": node.is_active,
+            "node_type": getattr(node, 'node_type', 'worker')
+        }
+    }
 
 @app.post("/api/goals/{goal_id}/followup")
 def api_add_goal_followup(goal_id: str, req: FollowupRequest, background_tasks: BackgroundTasks):
@@ -432,6 +470,24 @@ def api_trending_hf_models():
     results = fetch_trending_hf_models()
     return {"results": results}
 
+@app.get("/api/models/loaded")
+def api_models_loaded():
+    """Retrieve models currently resident in RAM/VRAM."""
+    from ollama_agents.memory_manager import memory_manager
+    loaded = memory_manager.get_loaded_models()
+    return {"loaded_models": loaded, "count": len(loaded)}
+
+@app.post("/api/models/unload")
+def api_models_unload(req: UnloadModelRequest = UnloadModelRequest()):
+    """Unload a specific model or all models from Ollama RAM/VRAM immediately."""
+    from ollama_agents.memory_manager import memory_manager
+    if req.model:
+        success = memory_manager.unload_model(req.model)
+        return {"unloaded": [req.model] if success else [], "success": success}
+    else:
+        unloaded = memory_manager.unload_all_loaded_models()
+        return {"unloaded": unloaded, "success": True}
+
 @app.post("/api/upload")
 async def api_upload_file(file: UploadFile = File(...)):
     """Upload a file or image for analysis, editing, or reference by the agent."""
@@ -466,7 +522,7 @@ def api_list_goals():
     return [{
         "goal_id": g.id,
         "title": g.description,
-        "model": g.agent_name,
+        "model": getattr(g, 'model', None) or "deepseek-r1:8b",
         "created_at": g.created,
         "progress_pct": g.progress_pct,
         "final_summary": getattr(g, 'final_summary', ''),
@@ -565,23 +621,84 @@ def api_run_goal_task(goal_id: str, background_tasks: BackgroundTasks, auto_cont
                 except Exception as gc_err:
                     logger.debug("Pre-task GC cleanup: %s", gc_err)
 
+                from ollama_agents.planner import Planner
+                planner = Planner(model=model_name)
                 memory = MemoryStore(agent_name="AssistantAgent")
                 agent = Agent(
                     model=model_name,
                     host=host_url,
                     tools=[write_file, replace_in_file, read_file, list_workspace_files, run_terminal, run_python, web_search, get_realtime_market_quote, delegate_subagent, rag_add_knowledge, rag_search, generate_image_sd_forge, edit_image_sd_forge, edit_image, generate_video_comfyui, github_clone_repo, github_create_branch, github_commit_and_push, github_create_pull_request, github_status, test_ui_playwright, build_android_apk],
                     memory=memory,
+                    planner=planner,
                     max_turns=120
                 )
                 
                 # Execute current session sub-task
-                agent.run_goal(goal_id)
+                run_output = agent.run_goal(goal_id)
 
-                # Check if task is still in_progress (e.g. MaxTurnsExceeded) — don't retry infinitely
                 refreshed = registry.get_goal(goal_id)
-                if refreshed and refreshed.next_task and refreshed.next_task.id == curr_task.id and refreshed.next_task.status == "in_progress":
-                    logger.warning("Task '%s' still in_progress after execution (likely MaxTurnsExceeded). Marking as failed.", curr_task.id)
-                    registry.fail_task(goal_id, curr_task.id, reason="timed out")
+                if not refreshed:
+                    break
+
+                target_task = next((t for t in refreshed.tasks if t.id == curr_task.id), None)
+                if target_task and target_task.status == "in_progress":
+                    logger.warning("Task '%s' still in_progress after execution. Marking as failed.", curr_task.id)
+                    registry.fail_task(goal_id, curr_task.id, reason="timed out or reached turn limit")
+                    refreshed = registry.get_goal(goal_id)
+                    target_task = next((t for t in refreshed.tasks if t.id == curr_task.id), None)
+
+                # ── DYNAMIC REPLAN & CASCADE BLOCKING ───────────────
+                if target_task and target_task.status == "failed":
+                    fail_reason = target_task.output or "Task execution failed"
+                    logger.warning(
+                        "[Autonomous Goal] Sub-task '%s' failed (%s). Triggering dynamic replanning...",
+                        curr_task.id, fail_reason
+                    )
+                    
+                    completed_descriptions = [t.description for t in refreshed.completed_tasks]
+                    remaining_descriptions = [t.description for t in refreshed.tasks if t.status == "pending" and t.id != curr_task.id]
+
+                    revised_steps = []
+                    try:
+                        revised_steps = planner.replan(
+                            goal=refreshed.description,
+                            completed_steps=completed_descriptions,
+                            failed_step=curr_task.description,
+                            failure_reason=fail_reason,
+                            remaining_steps=remaining_descriptions
+                        )
+                    except Exception as replan_err:
+                        logger.error("Planner replan exception: %s", replan_err)
+
+                    if revised_steps:
+                        logger.info(
+                            "[Autonomous Goal] Replanner generated %d revised steps for goal '%s'.",
+                            len(revised_steps), goal_id
+                        )
+                        registry.replan_remaining_tasks(goal_id, curr_task.id, revised_steps)
+                        registry.save_notes(
+                            goal_id,
+                            f"⚡ Dynamic Replanning: Sub-task '{curr_task.description[:60]}' failed ({fail_reason[:100]}). "
+                            f"Roadmap adapted with {len(revised_steps)} revised steps."
+                        )
+                        if not auto_continue or goal_id not in ACTIVE_EXECUTIONS:
+                            break
+                        continue
+                    else:
+                        # Cascade failure: mark all downstream pending tasks as blocked
+                        logger.warning(
+                            "[Autonomous Goal] Replanner found no alternative path. Cascading block to downstream tasks."
+                        )
+                        registry.block_downstream_tasks(
+                            goal_id,
+                            curr_task.id,
+                            reason=f"Upstream task '{curr_task.description}' failed: {fail_reason[:150]}"
+                        )
+                        registry.save_notes(
+                            goal_id,
+                            f"⛔ Goal Blocked: Sub-task '{curr_task.description[:60]}' failed. Downstream tasks blocked."
+                        )
+                        break
 
                 if not auto_continue or goal_id not in ACTIVE_EXECUTIONS:
                     break
@@ -590,6 +707,7 @@ def api_run_goal_task(goal_id: str, background_tasks: BackgroundTasks, auto_cont
             curr_g = registry.get_goal(goal_id)
             if curr_g and curr_g.next_task:
                 registry.fail_task(goal_id, curr_g.next_task.id, reason=str(e))
+                registry.block_downstream_tasks(goal_id, curr_g.next_task.id, reason=str(e))
         finally:
             ACTIVE_EXECUTIONS.pop(goal_id, None)
 
@@ -606,6 +724,39 @@ def api_retry_goal_task(goal_id: str, task_id: str, background_tasks: Background
         
     registry.reset_task(goal_id, task_id, model_override=model_override)
     return api_run_goal_task(goal_id, background_tasks, auto_continue=auto_continue)
+
+@app.post("/api/goals/{goal_id}/tasks/{task_id}/model")
+def api_update_task_model(goal_id: str, task_id: str, req: Optional[UpdateTaskModelRequest] = None, model: Optional[str] = None):
+    """Update execution model for a specific sub-task in a goal."""
+    chosen_model = None
+    if req and req.model is not None:
+        chosen_model = req.model
+    elif model is not None:
+        chosen_model = model
+
+    registry = GoalRegistry()
+    success = registry.set_task_model(goal_id, task_id, chosen_model)
+    if not success:
+        raise HTTPException(status_code=404, detail="Goal or task not found")
+    return {"status": "success", "goal_id": goal_id, "task_id": task_id, "model": chosen_model}
+
+@app.post("/api/goals/{goal_id}/model")
+def api_update_goal_model(goal_id: str, req: Optional[UpdateGoalModelRequest] = None, model: Optional[str] = None):
+    """Update the default execution model for an entire goal."""
+    chosen_model = None
+    if req and req.model:
+        chosen_model = req.model
+    elif model:
+        chosen_model = model
+
+    if not chosen_model:
+        raise HTTPException(status_code=400, detail="Model name is required")
+
+    registry = GoalRegistry()
+    success = registry.set_goal_model(goal_id, chosen_model)
+    if not success:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    return {"status": "success", "goal_id": goal_id, "model": chosen_model}
 
 @app.post("/api/goals/{goal_id}/kill")
 def api_kill_goal_execution(goal_id: str):
@@ -726,6 +877,13 @@ def api_run_single_task(req: SingleTaskRequest):
         # Resolve multimodal images if attachment is provided
         images = resolve_multimodal_images(req.attachment) if req.attachment else []
 
+        # Proactively manage RAM/VRAM: unload prior loaded model if switching
+        try:
+            from ollama_agents.memory_manager import memory_manager
+            memory_manager.prepare_model_switch(req.model, host=host_url)
+        except Exception as mem_err:
+            logger.debug("prepare_model_switch in single task: %s", mem_err)
+
         # Reuse existing stateful Agent or create a new session agent
         if session_key not in SESSION_AGENTS or SESSION_AGENTS[session_key].model != req.model:
             memory = MemoryStore(agent_name="AssistantAgent")
@@ -825,6 +983,13 @@ async def api_chat_stream(req: SingleTaskRequest):
 
     # Resolve multimodal images if attachment is provided
     images = resolve_multimodal_images(req.attachment) if req.attachment else []
+
+    # Proactively manage RAM/VRAM: unload prior loaded model if switching
+    try:
+        from ollama_agents.memory_manager import memory_manager
+        memory_manager.prepare_model_switch(req.model, host=host_url)
+    except Exception as mem_err:
+        logger.debug("prepare_model_switch in chat stream: %s", mem_err)
 
     if session_key not in SESSION_AGENTS or SESSION_AGENTS[session_key].model != req.model:
         memory = MemoryStore(agent_name="AssistantAgent")
@@ -1250,17 +1415,17 @@ def api_media_edit_image(payload: Dict[str, Any]):
     }
 
 @app.post("/api/media/generate-video")
-def api_media_generate_video(payload: Dict[str, Any]):
+async def api_media_generate_video(payload: Dict[str, Any]):
     """Trigger video generation via local ComfyUI API."""
     import re
-    from ollama_agents.tools import generate_video_comfyui
+    from ollama_agents.tools import _generate_video_comfyui_async
     prompt = payload.get("prompt", "")
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt is required")
     api_url = payload.get("api_url", "http://127.0.0.1:8000")
     ckpt_name = payload.get("ckpt_name") or payload.get("model") or "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors"
     steps = int(payload.get("steps", 25))
-    res = generate_video_comfyui(
+    res = await _generate_video_comfyui_async(
         prompt=prompt,
         negative_prompt=payload.get("negative_prompt", "blurry, low quality, distorted, static, jittery"),
         width=int(payload.get("width", 512)),

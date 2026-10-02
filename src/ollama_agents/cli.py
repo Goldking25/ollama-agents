@@ -261,7 +261,15 @@ def serve_web(
             pass
 
     console.print(f"[bold green]Launching Ollama Agents Web UI at http://{host}:{port}[/bold green]")
-    uvicorn.run("ollama_agents.server:app", host=host, port=port, reload=False, ws_ping_interval=20, ws_ping_timeout=20)
+    uvicorn.run(
+        "ollama_agents.server:app",
+        host=host,
+        port=port,
+        reload=False,
+        ws_ping_interval=15,
+        ws_ping_timeout=15,
+        timeout_keep_alive=600,
+    )
 
 
 if __name__ == "__main__":

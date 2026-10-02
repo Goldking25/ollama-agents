@@ -105,6 +105,28 @@ class GoalTask:
     def is_failed(self) -> bool:
         return self.status == "failed"
 
+    @property
+    def is_blocked(self) -> bool:
+        return self.status == "blocked"
+
+
+def is_task_failure_output(output: str) -> bool:
+    """Detect if an execution output represents an error, failure, or stuck loop."""
+    if not output or not isinstance(output, str):
+        return True
+    stripped = output.strip()
+    if stripped.startswith("[Error]") or stripped.startswith("[Tool Failure]"):
+        return True
+    if "Agent stopped:" in stripped:
+        return True
+    if "timed out" in stripped.lower():
+        return True
+    if "Traceback (most recent call last)" in stripped:
+        return True
+    if "repeated identical tool call" in stripped.lower():
+        return True
+    return False
+
 
 @dataclass
 class Goal:
@@ -138,7 +160,9 @@ class Goal:
 
     @property
     def next_task(self) -> Optional[GoalTask]:
-        """Return the next pending or in-progress task."""
+        """Return the next pending or in-progress task. Blocked goals/tasks cannot run."""
+        if self.status in ("completed", "blocked", "failed"):
+            return None
         for t in self.tasks:
             if t.status in ("pending", "in_progress"):
                 return t
@@ -445,6 +469,116 @@ class GoalRegistry:
                     pass
                 break
         self._save(goal)
+
+    def replan_remaining_tasks(
+        self,
+        goal_id: str,
+        failed_task_id: str,
+        new_task_descriptions: List[str],
+    ) -> bool:
+        """Replace remaining pending/blocked subtasks with revised steps from the replanner."""
+        goal = self.load(goal_id)
+        if not goal:
+            return False
+
+        failed_idx = -1
+        for idx, task in enumerate(goal.tasks):
+            if task.id == failed_task_id:
+                failed_idx = idx
+                break
+
+        if failed_idx == -1:
+            logger.warning("replan_remaining_tasks: task '%s' not found in goal '%s'", failed_task_id, goal_id)
+            return False
+
+        preserved_tasks = goal.tasks[: failed_idx + 1]
+        start_num = len(preserved_tasks) + 1
+        new_tasks = []
+        for i, desc in enumerate(new_task_descriptions):
+            new_tasks.append(
+                GoalTask(
+                    id=f"task-{start_num + i:03d}",
+                    description=desc,
+                    status="pending",
+                )
+            )
+
+        conn = _get_conn()
+        with conn:
+            conn.execute(
+                "DELETE FROM goal_tasks WHERE goal_id = ? AND sort_order > ?",
+                (goal_id, failed_idx),
+            )
+
+        goal.tasks = preserved_tasks + new_tasks
+        goal.status = "active"
+        self._save(goal)
+        logger.info(
+            "Goal '%s' dynamically replanned: replaced remaining tasks with %d new steps.",
+            goal_id,
+            len(new_tasks),
+        )
+        return True
+
+    def block_downstream_tasks(
+        self,
+        goal_id: str,
+        failed_task_id: str,
+        reason: str = "",
+    ) -> None:
+        """Cascade failure: mark all downstream pending tasks as 'blocked'."""
+        goal = self.load(goal_id)
+        if not goal:
+            return
+
+        failed_found = False
+        blocked_count = 0
+        for task in goal.tasks:
+            if task.id == failed_task_id:
+                failed_found = True
+                continue
+            if failed_found and task.status in ("pending", "in_progress"):
+                task.status = "blocked"
+                task.output = f"⛔ Cascaded Block: Upstream task '{failed_task_id}' failed: {reason[:200]}"
+                task.updated = _now()
+                blocked_count += 1
+
+        goal.status = "blocked"
+        self._save(goal)
+        logger.warning(
+            "Goal '%s' marked blocked: cascaded failure from task '%s' to %d downstream tasks.",
+            goal_id,
+            failed_task_id,
+            blocked_count,
+        )
+
+    def set_task_model(self, goal_id: str, task_id: str, model: Optional[str]) -> bool:
+        """Update model_override for a specific sub-task in a goal."""
+        goal = self.load(goal_id)
+        if not goal:
+            return False
+        found = False
+        for task in goal.tasks:
+            if task.id == task_id:
+                task.model_override = model.strip() if (model and model.strip()) else None
+                task.updated = _now()
+                found = True
+                break
+        if found:
+            self._save(goal)
+            logger.info("Updated task '%s' in goal '%s' model_override to: %s", task_id, goal_id, model)
+        return found
+
+    def set_goal_model(self, goal_id: str, model: str) -> bool:
+        """Update the default execution model for an entire goal."""
+        goal = self.load(goal_id)
+        if not goal:
+            return False
+        goal.model = model.strip() if (model and model.strip()) else "deepseek-r1:8b"
+        goal.updated = _now()
+        self._save(goal)
+        logger.info("Updated goal '%s' model to: %s", goal_id, goal.model)
+        return True
 
     def save_notes(self, goal_id: str, notes: str) -> None:
         goal = self.load(goal_id)

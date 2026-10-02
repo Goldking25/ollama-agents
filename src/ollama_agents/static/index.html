@@ -375,7 +375,7 @@
 
         <div class="header-status-bar" style="display: flex; gap: 0.75rem; align-items: center;">
             <div id="memoryBadge" style="font-size: 0.78rem; background: rgba(99, 102, 241, 0.15); border: 1px solid var(--panel-border); padding: 0.35rem 0.75rem; border-radius: 20px; color: #c7d2fe;" title="Live RAM / GPU VRAM utilization & execution guard">
-                💾 RAM: <span id="ramPct">--%</span> | ⚡ VRAM: <span id="vramPct">--%</span> | Active: <span id="activeAgents">0</span>/3
+                💾 RAM: <span id="ramPct">--%</span> | ⚡ VRAM: <span id="vramPct">--%</span> | Active: <span id="activeAgents">0</span>/3<span id="loadedModelSpan"></span>
             </div>
             <button onclick="triggerGC()" class="chip" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4);" title="Free System RAM & unload Ollama/PyTorch/ComfyUI GPU VRAM">🧹 Free RAM & VRAM</button>
             <button onclick="restartServerUI()" class="chip" style="background: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.4);" title="Restart server process to reload all Python modules & code changes">🔄 Restart Server</button>
@@ -610,10 +610,16 @@
 
                 <!-- Add Node Manual Control -->
                 <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 12px; padding: 1rem; margin-top: 0.5rem;">
-                    <div style="font-weight: 600; font-size: 0.9rem; color: #c7d2fe; margin-bottom: 0.4rem;">➕ Connect Secondary Laptop / Computer</div>
+                    <div style="font-weight: 600; font-size: 0.9rem; color: #c7d2fe; margin-bottom: 0.4rem;">➕ Connect Raspberry Pi / Secondary Computer</div>
                     <div style="display: flex; gap: 0.5rem;">
-                        <input id="addNodeUrlInput" type="text" placeholder="Enter node host URL (e.g. http://192.168.1.50:11434 or 100.76.216.29:11434)..." style="flex: 1;">
+                        <input id="addNodeUrlInput" type="text" placeholder="Enter IP or URL (e.g. 192.168.29.50, http://192.168.29.50:9000, or 100.76.216.29:9000)..." style="flex: 1;">
                         <button class="btn-send" onclick="addClusterNodeFromUI()" style="white-space: nowrap;">+ Add Node</button>
+                    </div>
+                    <div style="margin-top: 0.6rem; font-size: 0.78rem; color: #94a3b8; background: rgba(0,0,0,0.3); padding: 0.6rem; border-radius: 6px;">
+                        💡 <b>Auto-Connect Raspberry Pi:</b> Run this on your Raspberry Pi to register automatically:
+                        <div style="background: #060911; padding: 0.35rem 0.6rem; border-radius: 4px; margin-top: 0.3rem; font-family: 'JetBrains Mono', monospace; color: #a7f3d0; user-select: all; font-size: 0.75rem;">
+                            python -m ollama_agents.worker_node --master http://192.168.29.13:8100
+                        </div>
                     </div>
                 </div>
 
@@ -858,12 +864,13 @@
                             <div>
                                 <label style="font-size: 0.72rem; color: var(--text-muted);">Video Model Checkpoint:</label>
                                 <select id="comfyModelSelect" style="width: 100%; padding: 0.35rem !important; font-size: 0.78rem !important; background: #0d1117; border: 1px solid #374151; color: #e2e8f0; border-radius: 6px;">
-                                    <option value="ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors" selected>LTX-Video 2.5 (Fast INT8 / 22B Distilled)</option>
-                                    <option value="wan2.1_t2v_1.3B_bf16.safetensors">Wan 2.1 1.3B (Ultra Sharp & Realistic / Light VRAM)</option>
-                                    <option value="wan2.1_t2v_14B_bf16.safetensors">Wan 2.1 14B (Cinema Grade)</option>
-                                    <option value="cogvideox_5b_i2v.safetensors">CogVideoX 5B (Coherent Motion)</option>
-                                    <option value="svd_xt.safetensors">Stable Video Diffusion XT (SVD-XT)</option>
-                                    <option value="hunyuan_video_720_cfgdistill_fp8.safetensors">HunyuanVideo FP8 (High Dynamic Motion)</option>
+                                    <option value="wan2.1_t2v_1.3B_bf16.safetensors" selected>Wan 2.1 1.3B (Ultra Sharp & Realistic / Light VRAM) [INSTALLED]</option>
+                                    <option value="ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors">LTX-Video 2.5 (Fast INT8 / 22B Distilled) [INSTALLED]</option>
+                                    <option value="flux-2-klein-9b.safetensors">Flux 2 Klein 9B [INSTALLED]</option>
+                                    <option value="wan2.1_t2v_14B_bf16.safetensors" disabled>Wan 2.1 14B (Not installed in ComfyUI models)</option>
+                                    <option value="cogvideox_5b_i2v.safetensors" disabled>CogVideoX 5B (Not installed in ComfyUI models)</option>
+                                    <option value="svd_xt.safetensors" disabled>SVD-XT (Not installed in ComfyUI models)</option>
+                                    <option value="hunyuan_video_720_cfgdistill_fp8.safetensors" disabled>HunyuanVideo FP8 (Not installed in ComfyUI models)</option>
                                 </select>
                             </div>
                             <div>
@@ -998,10 +1005,10 @@
                         }
 
                         if (payload.type === "goals_update" && payload.data) {
-                            // Only silently refresh goals if the goals tab is active
-                            if (document.getElementById("goalsTab") &&
-                                document.getElementById("goalsTab").style.display !== "none") {
-                                renderGoalsFromWS(payload.data);
+                            // Silently refresh goals if goals tab is active
+                            const tabGoals = document.getElementById("tab-goals");
+                            if (tabGoals && tabGoals.classList.contains("active")) {
+                                fetchGoals();
                             }
                         }
                     } catch (e) {}
@@ -1056,20 +1063,42 @@
                         ? loadedModels.map(lm => `<b>${lm.name}</b> (${lm.size_vram_gb} GB VRAM)`).join(", ")
                         : "No model loaded in memory (Idle)";
 
+                    const isWorker = node.node_type === "worker" || (node.name && node.name.toLowerCase().includes("pi"));
+                    const isHybrid = node.node_type === "hybrid";
+                    const nodeIcon = isWorker ? "🥧" : (isHybrid ? "⚡" : "💻");
+                    const typeLabel = (node.node_type || "ollama").toUpperCase();
+                    const typeBg = isWorker ? "rgba(236, 72, 153, 0.15)" : (isHybrid ? "rgba(16, 185, 129, 0.15)" : "rgba(99, 102, 241, 0.15)");
+                    const typeColor = isWorker ? "#f472b6" : (isHybrid ? "#10b981" : "#818cf8");
+
+                    const wStats = node.worker_stats || {};
+                    const hasWorkerSpecs = wStats.status === "online";
+
                     return `
                         <div style="background: rgba(9, 13, 22, 0.6); border: 1px solid var(--panel-border); border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem;">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                    <span style="font-size: 1.1rem;">💻</span>
+                                    <span style="font-size: 1.2rem;">${nodeIcon}</span>
                                     <strong style="color: var(--text-main); font-size: 0.95rem;">${node.name}</strong>
                                     <span style="font-size: 0.75rem; color: var(--text-muted);">(${node.url})</span>
-                                    <span style="font-size: 0.7rem; background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3); padding: 0.1rem 0.4rem; border-radius: 10px;">${node.discovered_via || 'manual'}</span>
+                                    <span style="font-size: 0.7rem; background: ${typeBg}; color: ${typeColor}; border: 1px solid ${typeColor}40; padding: 0.1rem 0.45rem; border-radius: 10px; font-weight: 600;">${typeLabel}</span>
+                                    <span style="font-size: 0.7rem; background: rgba(255, 255, 255, 0.05); color: var(--text-muted); padding: 0.1rem 0.4rem; border-radius: 10px;">${node.discovered_via || 'manual'}</span>
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 0.6rem;">
                                     <span style="font-size: 0.75rem; color: var(--text-muted);">${node.latency_ms}ms</span>
                                     <span style="font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 12px; background: rgba(16, 185, 129, 0.15); color: ${statusColor}; font-weight: 600; text-transform: uppercase;">${statusBadge}</span>
                                 </div>
                             </div>
+
+                            ${hasWorkerSpecs ? `
+                            <!-- Distributed General Compute Engine Status Gauge -->
+                            <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 0.5rem 0.8rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem;">
+                                <div>
+                                    <span style="color: #a7f3d0; font-weight: 600;">🥧 Compute Engine:</span>
+                                    <span style="color: var(--text-main); margin-left: 0.3rem;">${wStats.cpu_cores || 4} Cores (${wStats.cpu_used_pct || 0}% CPU) &bull; RAM: ${wStats.ram_available_gb || 0} GB free / ${wStats.ram_total_gb || 0} GB (${wStats.platform || 'Linux'})</span>
+                                </div>
+                                <span style="font-size: 0.7rem; color: #10b981; font-weight: 700; background: rgba(16, 185, 129, 0.15); padding: 0.15rem 0.5rem; border-radius: 10px;">READY FOR TASKS</span>
+                            </div>
+                            ` : ''}
 
                             <!-- Live Memory & VRAM Utilization Gauge -->
                             <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 8px; padding: 0.6rem 0.8rem; display: flex; justify-content: space-between; align-items: center;">
@@ -1087,7 +1116,7 @@
                             <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.1rem;">
                                 <strong>Installed Models (${node.models_count}):</strong>
                                 <div style="display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem;">
-                                    ${modelsPills || '<span style="color: var(--text-muted);">No models detected</span>'}
+                                    ${modelsPills || (isWorker ? '<span style="color: #a7f3d0; font-size: 0.75rem;">Compute Worker Node (Executes Python scripts, terminal commands & builds)</span>' : '<span style="color: var(--text-muted);">No models detected</span>')}
                                 </div>
                             </div>
                         </div>
@@ -1127,11 +1156,14 @@
 
         initClusterWebSocket();
 
+        window.installedModels = [];
+
         async function fetchInstalledModels() {
             try {
                 const res = await fetch(`${API_BASE}/api/models/installed`);
                 const data = await res.json();
                 if (data.models && data.models.length > 0) {
+                    window.installedModels = data.models;
                     const chatSelect = document.getElementById("chatModelSelect");
                     if (chatSelect) {
                         const prev = chatSelect.value;
@@ -1154,6 +1186,38 @@
                 console.error("Error fetching installed models:", err);
             }
         }
+
+        function getInstalledModelsList() {
+            if (window.installedModels && window.installedModels.length > 0) {
+                return window.installedModels;
+            }
+            const select = document.getElementById("goalModelSelect") || document.getElementById("chatModelSelect");
+            if (select) {
+                const options = Array.from(select.options)
+                    .map(o => o.value)
+                    .filter(v => v && !v.includes("Loading"));
+                if (options.length > 0) {
+                    window.installedModels = options;
+                    return options;
+                }
+            }
+            return [];
+        }
+
+        function renderSubtaskModelOptions(currentModel) {
+            const models = getInstalledModelsList();
+            let hasCurrent = false;
+            let html = models.map(m => {
+                if (m === currentModel) hasCurrent = true;
+                const isSel = (m === currentModel) ? 'selected' : '';
+                return `<option value="${m}" ${isSel} style="background: #0d1117; color: #e2e8f0;">${m}</option>`;
+            }).join("");
+            if (currentModel && !hasCurrent) {
+                html = `<option value="${currentModel}" selected style="background: #0d1117; color: #38bdf8;">${currentModel}</option>` + html;
+            }
+            return html;
+        }
+
 
         function openTab(tabName) {
             console.log("Switching to tab:", tabName);
@@ -1444,7 +1508,13 @@
                     alert("ComfyUI Video Result:\n" + (data.message || JSON.stringify(data)));
                 }
             } catch (err) {
-                alert("Video generation error: " + err.message);
+                console.error("Video generation failure:", err);
+                let msg = err.message || "";
+                if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("fetch")) {
+                    alert("Video generation network error:\nCould not reach the server or the video rendering took longer than browser network timeout. ComfyUI may still be rendering in the background. Check ComfyUI Desktop or the Gallery in a minute.");
+                } else {
+                    alert("Video generation error: " + msg);
+                }
             } finally {
                 btn.disabled = false;
                 btn.innerText = "🎬 Generate Video";
@@ -2356,6 +2426,9 @@
 
                 // Preserve state RIGHT BEFORE modifying DOM, so we don't snapshot outdated scroll from before network request
                 if (list) {
+                    if (document.activeElement && document.activeElement.tagName === "SELECT" && list.contains(document.activeElement)) {
+                        return goals;
+                    }
                     scrollPositions["_main_list"] = list.scrollTop;
                     list.querySelectorAll('[data-subtask-container]').forEach(el => {
                         scrollPositions[el.getAttribute('data-subtask-container')] = el.scrollTop;
@@ -2390,6 +2463,7 @@
                         if (t.status === "completed") { badgeColor = "#10b981"; badgeBg = "rgba(16, 185, 129, 0.15)"; icon = "✅"; }
                         else if (t.status === "in_progress") { badgeColor = "#f59e0b"; badgeBg = "rgba(245, 158, 11, 0.15)"; icon = "⏳"; }
                         else if (t.status === "failed") { badgeColor = "#ef4444"; badgeBg = "rgba(239, 68, 68, 0.15)"; icon = "❌"; }
+                        else if (t.status === "blocked") { badgeColor = "#c084fc"; badgeBg = "rgba(192, 132, 252, 0.15)"; icon = "⛔"; }
 
                         const outputText = t.output || t.result || "";
                         let resultPreview = "";
@@ -2412,14 +2486,26 @@
                             resultPreview = `<div style="font-size: 0.78rem; color: #fde68a; margin-top: 0.2rem; font-style: italic;">Agent is actively executing this sub-task...</div>`;
                         }
 
+                        const currentOverride = t.model_override || "";
+                        const hasCustomModel = !!currentOverride;
+
                         return `
-                            <div style="background: rgba(17, 24, 39, 0.5); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 0.6rem 0.8rem; margin-top: 0.4rem;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="font-size: 0.88rem; color: var(--text-main); font-weight: 500;">
+                            <div style="background: rgba(17, 24, 39, 0.5); border: 1px solid ${hasCustomModel ? 'rgba(56, 189, 248, 0.3)' : 'rgba(255,255,255,0.05)'}; border-radius: 8px; padding: 0.6rem 0.8rem; margin-top: 0.4rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.4rem;">
+                                    <span style="font-size: 0.88rem; color: var(--text-main); font-weight: 500; flex: 1; min-width: 180px;">
                                         ${icon} Session ${idx+1}: ${t.description || t.title}
                                     </span>
-                                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                        <button onclick="openRetryTaskModal('${g.goal_id}', '${t.id}', '${(t.description || t.title || '').replace(/'/g, "\\'")}')" style="background: rgba(99, 102, 241, 0.25); color: #c7d2fe; border: 1px solid rgba(99, 102, 241, 0.5); padding: 0.2rem 0.55rem; border-radius: 4px; font-size: 0.72rem; cursor: pointer; transition: all 0.2s; font-weight: 500;" title="Re-run sub-task with current or different model">↻ Retry</button>
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                                        <!-- Sub-Task Model Selector -->
+                                        <div style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(9, 13, 22, 0.85); border: 1px solid ${hasCustomModel ? 'rgba(56, 189, 248, 0.5)' : 'rgba(255,255,255,0.1)'}; border-radius: 6px; padding: 0.15rem 0.4rem;" title="Choose execution model for this sub-task">
+                                            <span style="font-size: 0.7rem; color: ${hasCustomModel ? '#38bdf8' : 'var(--text-muted)'}; font-weight: 600;">🤖 Model:</span>
+                                            <select id="subtask_model_${g.goal_id}_${t.id}" onchange="changeSubTaskModel('${g.goal_id}', '${t.id}', this.value)" style="background: transparent; border: none; color: ${hasCustomModel ? '#38bdf8' : '#e2e8f0'}; font-size: 0.72rem; outline: none; cursor: pointer; max-width: 155px; font-weight: ${hasCustomModel ? '600' : 'normal'};">
+                                                <option value="" style="background: #0d1117; color: #94a3b8;" ${!currentOverride ? 'selected' : ''}>Goal Default (${g.model || 'Default'})</option>
+                                                ${renderSubtaskModelOptions(currentOverride)}
+                                            </select>
+                                            ${hasCustomModel ? `<span style="font-size: 0.62rem; color: #38bdf8; background: rgba(56, 189, 248, 0.18); padding: 0.05rem 0.3rem; border-radius: 3px; font-weight: 700;">override</span>` : ''}
+                                        </div>
+                                        <button onclick="openRetryTaskModal('${g.goal_id}', '${t.id}', '${(t.description || t.title || '').replace(/'/g, "\\'")}', '${currentOverride}')" style="background: rgba(99, 102, 241, 0.25); color: #c7d2fe; border: 1px solid rgba(99, 102, 241, 0.5); padding: 0.2rem 0.55rem; border-radius: 4px; font-size: 0.72rem; cursor: pointer; transition: all 0.2s; font-weight: 500;" title="Re-run sub-task with current or different model">↻ Retry</button>
                                         <span style="font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 12px; background: ${badgeBg}; color: ${badgeColor}; font-weight: 600; text-transform: uppercase;">
                                             ${t.status}
                                         </span>
@@ -2464,8 +2550,14 @@
                             </div>
                             ` : ''}
 
+                            ${g.notes ? `
+                            <div style="background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 8px; padding: 0.5rem 0.8rem; margin-bottom: 0.6rem; font-size: 0.8rem; color: #c7d2fe;">
+                                ${g.notes}
+                            </div>
+                            ` : ''}
+
                             <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; margin-bottom: 0.2rem;">Sub-task Breakdown (${g.tasks_count} Sessions):</div>
-                            <div data-subtask-container="${g.goal_id}" style="max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.2rem;">
+                            <div data-subtask-container="${g.goal_id}" style="max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.2rem;">
                                 ${tasksListHtml}
                             </div>
 
@@ -2490,8 +2582,13 @@
                             </div>
                         </div>
 
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.6rem;">
-                            <span style="font-size: 0.8rem; color: var(--text-muted);">Model: ${g.model}</span>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.6rem; flex-wrap: wrap; gap: 0.5rem;">
+                            <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                <span style="font-size: 0.78rem; color: var(--text-muted);">Goal Default Model:</span>
+                                <select onchange="changeGoalModel('${g.goal_id}', this.value)" style="background: rgba(9, 13, 22, 0.8); border: 1px solid var(--panel-border); color: #c7d2fe; border-radius: 6px; padding: 0.2rem 0.5rem; font-size: 0.75rem; outline: none; cursor: pointer;" title="Change default model for this entire goal">
+                                    ${renderSubtaskModelOptions(g.model)}
+                                </select>
+                            </div>
                             <div style="display: flex; gap: 0.4rem;">
                                 <button class="btn-send" onclick="runGoalTask('${g.goal_id}')" ${btnDisabled} style="padding: 0.3rem 0.7rem; font-size: 0.8rem; ${isRunning ? 'opacity: 0.6; cursor: not-allowed;' : ''}">${btnText}</button>
                                 ${isRunning ? `<button class="chip" onclick="killGoal('${g.goal_id}')" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.15); padding: 0.3rem 0.6rem; font-size: 0.8rem;">🛑 Kill</button>` : ''}
@@ -2567,21 +2664,66 @@
             }
         }
 
+        async function changeSubTaskModel(goalId, taskId, newModel) {
+            try {
+                const res = await fetch(`${API_BASE}/api/goals/${goalId}/tasks/${taskId}/model`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ model: newModel || null })
+                });
+                if (!res.ok) {
+                    const errData = await res.json();
+                    throw new Error(errData.detail || "Failed to update sub-task model");
+                }
+                await fetchGoals();
+            } catch (err) {
+                alert("Error updating sub-task model: " + err.message);
+            }
+        }
+
+        async function changeGoalModel(goalId, newModel) {
+            try {
+                const res = await fetch(`${API_BASE}/api/goals/${goalId}/model`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ model: newModel })
+                });
+                if (!res.ok) {
+                    const errData = await res.json();
+                    throw new Error(errData.detail || "Failed to update goal model");
+                }
+                await fetchGoals();
+            } catch (err) {
+                alert("Error updating goal model: " + err.message);
+            }
+        }
+
         let activeRetryGoalId = null;
         let activeRetryTaskId = null;
 
-        function openRetryTaskModal(goalId, taskId, taskDescription) {
+        function openRetryTaskModal(goalId, taskId, taskDescription, currentModelOverride = "") {
             activeRetryGoalId = goalId;
             activeRetryTaskId = taskId;
 
             const descEl = document.getElementById("retryTaskDesc");
             if (descEl) descEl.innerText = taskDescription || `Task: ${taskId}`;
 
-            // Populate retryModelSelect from chatModelSelect or goalModelSelect
+            // Populate retryModelSelect from installed models list
             const retrySelect = document.getElementById("retryModelSelect");
-            const sourceSelect = document.getElementById("goalModelSelect") || document.getElementById("chatModelSelect");
-            if (retrySelect && sourceSelect) {
-                retrySelect.innerHTML = '<option value="">(Keep Goal Default Model)</option>' + sourceSelect.innerHTML;
+            if (retrySelect) {
+                const models = getInstalledModelsList();
+                let optionsHtml = '<option value="">(Keep Goal Default Model)</option>';
+                models.forEach(m => {
+                    const isSel = (m === currentModelOverride) ? 'selected' : '';
+                    optionsHtml += `<option value="${m}" ${isSel}>${m}</option>`;
+                });
+                if (currentModelOverride && !models.includes(currentModelOverride)) {
+                    optionsHtml += `<option value="${currentModelOverride}" selected>${currentModelOverride}</option>`;
+                }
+                retrySelect.innerHTML = optionsHtml;
+                if (currentModelOverride) {
+                    retrySelect.value = currentModelOverride;
+                }
             }
 
             const modal = document.getElementById("retryTaskModal");
@@ -2973,6 +3115,17 @@
                         document.getElementById("vramPct").innerText = `${data.gpu.vram_used_pct}%`;
                     } else {
                         document.getElementById("vramPct").innerText = `N/A`;
+                    }
+
+                    const loadedModels = data.loaded_models || [];
+                    const loadedSpan = document.getElementById("loadedModelSpan");
+                    if (loadedSpan) {
+                        if (loadedModels.length > 0) {
+                            const names = loadedModels.map(m => m.name || m.model).join(", ");
+                            loadedSpan.innerHTML = ` | 🧠 <span style="color: #38bdf8;" title="Resident in RAM/VRAM: ${names}">${names}</span>`;
+                        } else {
+                            loadedSpan.innerHTML = ` | 🧠 <span style="color: #94a3b8;" title="No model currently loaded">Idle</span>`;
+                        }
                     }
 
                     const badge = document.getElementById("memoryBadge");

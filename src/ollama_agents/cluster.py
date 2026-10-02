@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ClusterNode:
-    """Represents a remote or local computer node running Ollama."""
-    host_url: str  # e.g. "http://192.168.1.50:11434" or "http://localhost:11434"
+    """Represents a remote or local computer node running Ollama or Worker Node."""
+    host_url: str  # e.g. "http://192.168.1.50:11434" or "http://192.168.1.50:9000"
     name: str = "LocalNode"
     is_active: bool = False
     installed_models: List[str] = field(default_factory=list)
@@ -32,30 +32,40 @@ class ClusterNode:
     total_size_bytes: int = 0
     latency_ms: float = 0.0
     active_jobs: int = 0
-    discovered_via: str = "manual"  # 'manual' or 'mdns'
+    discovered_via: str = "manual"  # 'manual', 'mdns', 'http_register'
+    node_type: str = "ollama"       # 'ollama', 'worker', or 'hybrid'
+    worker_url: Optional[str] = None
+    worker_stats: Dict[str, Any] = field(default_factory=dict)
 
     def ping_and_discover(self) -> bool:
-        """Check node health, fetch installed Ollama models, and query loaded model memory/VRAM."""
+        """Check node health: queries Ollama /api/tags AND/OR worker /api/worker/health."""
         base = self.host_url.rstrip('/')
+        start_time = time.time()
+        
+        ollama_ok = False
+        worker_ok = False
+        
+        # 1. Test Ollama API on this host_url
         url_tags = f"{base}/api/tags"
         url_ps = f"{base}/api/ps"
-        start_time = time.time()
         try:
             req = urllib.request.Request(url_tags, headers={"User-Agent": "OllamaAgentsCluster/0.6.0"})
-            with urllib.request.urlopen(req, timeout=3.5) as resp:
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
                     models = []
-                    raw_models = data.get("models", [])
-                    for m in raw_models:
+                    for m in data.get("models", []):
                         name = m.get("model", m.get("name")) if isinstance(m, dict) else str(m)
                         if name:
                             models.append(name)
                     self.installed_models = models
-                    self.is_active = True
+                    ollama_ok = True
                     self.latency_ms = round((time.time() - start_time) * 1000.0, 1)
+        except Exception:
+            pass
 
-            # Query loaded model memory from /api/ps
+        # Query loaded model memory from /api/ps if Ollama is responsive
+        if ollama_ok:
             try:
                 req_ps = urllib.request.Request(url_ps, headers={"User-Agent": "OllamaAgentsCluster/0.6.0"})
                 with urllib.request.urlopen(req_ps, timeout=2.5) as resp_ps:
@@ -79,22 +89,68 @@ class ClusterNode:
                             })
                         self.vram_used_bytes = total_vram
                         self.total_size_bytes = total_size
-            except Exception as pe:
-                logger.debug("ClusterNode '%s' (/api/ps) query failed: %s", self.name, pe)
+            except Exception:
+                pass
 
-            logger.info("ClusterNode '%s' (%s) active: %d models, VRAM: %.2f GB (%.1fms)",
-                        self.name, self.host_url, len(self.installed_models),
-                        round(self.vram_used_bytes / (1024**3), 2), self.latency_ms)
+        # 2. Test Compute Worker API (/api/worker/health)
+        # Check current base, or alternate port 9000
+        worker_candidate_urls = [f"{base}/api/worker/health"]
+        if ":11434" in base:
+            worker_candidate_urls.append(f"{base.replace(':11434', ':9000')}/api/worker/health")
+        elif not any(p in base for p in [":9000", ":11434"]):
+            worker_candidate_urls.append(f"{base}:9000/api/worker/health")
+
+        for w_url in worker_candidate_urls:
+            try:
+                req_w = urllib.request.Request(w_url, headers={"User-Agent": "OllamaAgentsCluster/0.6.0"})
+                with urllib.request.urlopen(req_w, timeout=2.5) as resp_w:
+                    if resp_w.status == 200:
+                        self.worker_stats = json.loads(resp_w.read().decode("utf-8"))
+                        self.worker_url = w_url.replace("/api/worker/health", "")
+                        worker_ok = True
+                        if not self.latency_ms:
+                            self.latency_ms = round((time.time() - start_time) * 1000.0, 1)
+                        break
+            except Exception:
+                pass
+
+        # If base was port 9000 and Ollama was not found yet, also probe port 11434
+        if not ollama_ok and ":9000" in base:
+            ollama_alt = base.replace(":9000", ":11434")
+            try:
+                req_alt = urllib.request.Request(f"{ollama_alt}/api/tags", headers={"User-Agent": "OllamaAgentsCluster/0.6.0"})
+                with urllib.request.urlopen(req_alt, timeout=2.5) as resp_alt:
+                    if resp_alt.status == 200:
+                        data_alt = json.loads(resp_alt.read().decode("utf-8"))
+                        self.installed_models = [
+                            m.get("model", m.get("name")) if isinstance(m, dict) else str(m)
+                            for m in data_alt.get("models", [])
+                        ]
+                        ollama_ok = True
+            except Exception:
+                pass
+
+        if ollama_ok and worker_ok:
+            self.node_type = "hybrid"
+        elif worker_ok:
+            self.node_type = "worker"
+        elif ollama_ok:
+            self.node_type = "ollama"
+
+        if ollama_ok or worker_ok:
+            self.is_active = True
+            logger.info("ClusterNode '%s' (%s) active [type=%s]: %d models, latency: %.1fms",
+                        self.name, self.host_url, self.node_type, len(self.installed_models), self.latency_ms)
             return True
-        except Exception as e:
+        else:
             self.is_active = False
             self.installed_models = []
             self.loaded_models = []
             self.vram_used_bytes = 0
             self.total_size_bytes = 0
-            logger.debug("ClusterNode '%s' (%s) unreachable: %s", self.name, self.host_url, e)
+            self.worker_stats = {}
+            logger.debug("ClusterNode '%s' (%s) unreachable on both Ollama and Worker endpoints", self.name, self.host_url)
             return False
-        return False
 
 
 class DistributedClusterManager:
@@ -117,8 +173,15 @@ class DistributedClusterManager:
         clean_url = host_url.rstrip("/")
         if not clean_url.startswith(("http://", "https://")):
             clean_url = f"http://{clean_url}"
-        if not clean_url.endswith(":11434") and not clean_url.count(":") > 1:
-            clean_url = f"{clean_url}:11434"
+        
+        # If user did not provide a port, try port 9000 first, or fallback to 11434
+        if clean_url.count(":") <= 1:
+            try_9000 = f"{clean_url}:9000"
+            temp_node = ClusterNode(host_url=try_9000, name=name or "WorkerNode")
+            if temp_node.ping_and_discover():
+                clean_url = try_9000
+            else:
+                clean_url = f"{clean_url}:11434"
 
         node_name = name or f"Node-{len(self.nodes) + 1}"
         node = ClusterNode(host_url=clean_url, name=node_name, discovered_via=source)
@@ -142,15 +205,17 @@ class DistributedClusterManager:
                         msg = data.decode("utf-8", errors="ignore").strip()
                         if msg.startswith("OLLAMA_WORKER_ANNOUNCE:"):
                             parts = msg.split(":")
-                            # Format: OLLAMA_WORKER_ANNOUNCE:<hostname>:<port>
+                            # Format: OLLAMA_WORKER_ANNOUNCE:<hostname>:<ollama_port>:<worker_port>
                             worker_host = addr[0]
-                            worker_port = parts[2] if len(parts) >= 3 else "11434"
-                            target_url = f"http://{worker_host}:{worker_port}"
+                            worker_ollama_port = parts[2] if len(parts) >= 3 else "11434"
+                            worker_api_port = parts[3] if len(parts) >= 4 else "9000"
 
-                            if target_url not in self.nodes:
+                            # Prefer worker API port 9000 or Ollama port
+                            candidate_url = f"http://{worker_host}:{worker_api_port}"
+                            if candidate_url not in self.nodes and f"http://{worker_host}:{worker_ollama_port}" not in self.nodes:
                                 node_name = f"AutoDiscovered-{parts[1]}" if len(parts) >= 2 else f"AutoDiscovered-{worker_host}"
-                                logger.info("[Zeroconf Auto-Discovered Node] Found %s at %s!", node_name, target_url)
-                                self.add_node(target_url, name=node_name, source="mdns")
+                                logger.info("[Zeroconf Auto-Discovered Node] Found %s at %s!", node_name, candidate_url)
+                                self.add_node(candidate_url, name=node_name, source="mdns")
                     except socket.timeout:
                         pass
                     except Exception:
@@ -182,6 +247,9 @@ class DistributedClusterManager:
                 "latency_ms": n.latency_ms,
                 "models_count": len(n.installed_models),
                 "discovered_via": n.discovered_via,
+                "node_type": getattr(n, 'node_type', 'ollama'),
+                "worker_url": getattr(n, 'worker_url', None),
+                "worker_stats": getattr(n, 'worker_stats', {}),
                 "models": n.installed_models,
                 "loaded_models": n.loaded_models,
                 "vram_used_gb": round(n.vram_used_bytes / (1024**3), 2),

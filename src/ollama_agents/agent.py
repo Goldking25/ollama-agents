@@ -171,6 +171,7 @@ class Agent:
         self.max_turns = max_turns
         self.stateful = stateful
         self.memory = memory
+        self.host = host
         self.client = ollama.Client(host=host, timeout=600.0)
         self.confirm_actions: Set[str] = set(confirm_actions or [])
         self.critic = critic
@@ -664,6 +665,13 @@ class Agent:
                     errors=errors,
                 ))
 
+        # ── Smart RAM/VRAM Model Switch: Unload other resident models to free memory ──
+        try:
+            from ollama_agents.memory_manager import memory_manager
+            memory_manager.prepare_model_switch(self.model, host=getattr(self, 'host', None))
+        except Exception as mm_err:
+            logger.debug("[%s] prepare_model_switch notice: %s", self.name, mm_err)
+
         # ── Main loop ─────────────────────────────────────────────────
         for turn in range(start_turn, limit):
             logger.debug("[%s] Turn %d/%d", self.name, turn + 1, limit)
@@ -1101,6 +1109,12 @@ class Agent:
                 max_turns=max_turns,
                 task_id=task_id_for_checkpoint,
             )
+            from ollama_agents.goal import is_task_failure_output
+            if is_task_failure_output(output):
+                logger.warning("[%s] Subtask '%s' output indicates failure: %s", self.name, task.id, output[:200])
+                registry.fail_task(goal_id, task.id, reason=output[:300])
+                return output
+
             registry.complete_task(goal_id, task.id, output=output)
 
             # Reload to get updated progress
